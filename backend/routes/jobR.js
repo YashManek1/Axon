@@ -6,6 +6,7 @@ import {
   updateJob,
   deleteJob,
   toggleJobStatus,
+  runJobNow,
 } from "../controllers/jobC.js";
 
 import express from "express";
@@ -18,5 +19,6 @@ router.get("/getJobById/:jobId", authUser, getJobById);
 router.put("/updateJob/:jobId", authUser, updateJob);
 router.delete("/deleteJob/:jobId", authUser, deleteJob);
 router.patch("/toggleJobStatus/:jobId", authUser, toggleJobStatus);
+router.post("/runJobNow/:jobId", authUser, runJobNow);
 
 export default router;
