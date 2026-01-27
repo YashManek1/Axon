@@ -11,7 +11,6 @@ import jobRoutes from "./routes/jobR.js";
 import adminRoutes from "./routes/adminR.js";
 
 import Agent from "./models/agent.js";
-import "./workers/jobWorker.js";
 
 dotenv.config();
 
@@ -103,3 +102,4 @@ async function startServer() {
 }
 
 startServer();
+import "./workers/jobWorker.js";

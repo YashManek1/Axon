@@ -1,12 +1,12 @@
 import { Worker } from "bullmq";
 import { redisConnection } from "../config/queue.js";
 import jobHistoryModel from "../models/jobHistory.js";
+import Agent from "../models/agent.js";
+import { io } from "../server.js";
 import axios from "axios";
 
 const jobProcessor = async (job) => {
-  console.log(
-    `Worker picked up job: ${job.id} from queue: ${job.queueName}`
-  );
+  console.log(`Worker picked up job: ${job.id} from queue: ${job.queueName}`);
 
   const { jobId, payload, orgId, webhookUrl } = job.data;
 
@@ -14,7 +14,6 @@ const jobProcessor = async (job) => {
   let output = null;
   let error = null;
 
-  // A. EXECUTION
   try {
     if (payload.url) {
       console.log(`Running HTTP Job: ${payload.method} ${payload.url}`);
@@ -28,10 +27,41 @@ const jobProcessor = async (job) => {
         status: response.status,
         data: response.data,
       };
-    } else {
-      // Placeholder for Shell/Rust jobs (Sprint 3)
-      console.log("Shell Job detected - waiting for Agent (Sprint 3)");
-      output = { message: "Shell job executed (Mock)" };
+    } else if (payload.command) {
+      console.log(`Shell Job detected. Looking for Agent for Org: ${orgId}`);
+
+      const agent = await Agent.findOne({ orgId: orgId, status: "online" });
+
+      if (!agent || !agent.socketId) {
+        throw new Error(
+          `No Online Agents found for Org ${orgId}. Is your Rust Agent running?`,
+        );
+      }
+
+      console.log(
+        `Dispatching to Agent: ${agent.name} (Socket: ${agent.socketId})`,
+      );
+
+      const agentResponse = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error("Agent Execution Timed out (No reply in 10s)"));
+        }, 10000);
+
+        io.to(agent.socketId).emit(
+          "execute_command",
+          {
+            jobId: jobId,
+            command: payload.command,
+          },
+          (acknowledgement) => {
+            clearTimeout(timer);
+            resolve(acknowledgement);
+          },
+        );
+      });
+
+      if (agentResponse.error) throw new Error(agentResponse.error);
+      output = agentResponse;
     }
   } catch (err) {
     status = "failure";
@@ -45,7 +75,6 @@ const jobProcessor = async (job) => {
     }
   }
 
-  // B. SAVE HISTORY
   try {
     if (!orgId) console.warn("Warning: orgId missing in job data");
 
@@ -62,7 +91,6 @@ const jobProcessor = async (job) => {
     console.error("Failed to save history:", histErr);
   }
 
-  // C. WEBHOOK
   if (webhookUrl) {
     try {
       console.log("Firing Webhook...");
@@ -99,5 +127,5 @@ immediateWorker.on("failed", (job, err) => {
 });
 
 console.log(
-  "Axon Workers Started: Listening on 'scheduled-jobs' and 'immediate-jobs'"
+  "Axon Workers Started: Listening on 'scheduled-jobs' and 'immediate-jobs'",
 );

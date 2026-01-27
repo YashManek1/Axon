@@ -1,4 +1,3 @@
-// A script to simulate a Rust Agent connecting to your server
 import { io } from "socket.io-client";
 import mongoose from "mongoose";
 import Agent from "./models/agent.js";
@@ -55,24 +54,36 @@ async function runTest() {
       },
     });
 
+    // 4. HANDLE EVENTS
     socket.on("connect", () => {
       console.log("🎉 SUCCESS: Connected to Server!");
       console.log("✅ Socket ID:", socket.id);
-      console.log(
-        "Check your MongoDB 'agents' collection. Status should be 'online'.",
-      );
-
-      // Keep alive for 5 seconds then kill
-      setTimeout(() => {
-        console.log("👋 Disconnecting...");
-        socket.disconnect();
-        process.exit(0);
-      }, 5000);
+      console.log("⏳ Waiting for commands... (Press Ctrl+C to stop)");
     });
 
     socket.on("connect_error", (err) => {
       console.error("❌ CONNECTION REJECTED:", err.message);
       process.exit(1);
+    });
+
+    // --- SPRINT 3 LOGIC: LISTEN & REPLY ---
+    socket.on("execute_command", (data, callback) => {
+      console.log(
+        `\n📩 RECEIVED COMMAND: "${data.command}" (Job ID: ${data.jobId})`,
+      );
+      console.log("⚙️  Simulating Execution...");
+
+      // Simulate a 1-second delay (as if running a script)
+      setTimeout(() => {
+        console.log("✅ Execution Done. Sending Output.");
+
+        // Send the result back to the server (Worker)
+        callback({
+          stdout: `MOCK OUTPUT: Executed '${data.command}' on Test-Agent`,
+          stderr: "",
+          exitCode: 0,
+        });
+      }, 1000);
     });
   } catch (err) {
     console.error("Setup Error:", err);
