@@ -74,17 +74,35 @@ io.use(async (socket, next) => {
 });
 
 io.on("connection", async (socket) => {
-  const agent = socket.agent;
+  const agent = socket.agent; // attached by auth middleware
   console.log(`Agent Connected: ${agent.name} (${socket.id})`);
+
+  // Mark Online
   agent.status = "online";
-  agent.lastSeen = new Date();
   agent.socketId = socket.id;
+  agent.lastSeen = new Date();
   await agent.save();
+
+  socket.on("heartbeat", async (data) => {
+    // Update the Agent's systemInfo in DB
+    await Agent.findByIdAndUpdate(agent._id, {
+      lastSeen: new Date(),
+      systemInfo: {
+        os: data.os,
+        arch: data.arch,
+        cpuLoad: data.cpuLoad,
+        ramTotal: data.ramTotal,
+        ramUsed: data.ramUsed,
+      },
+    });
+  });
+
   socket.on("disconnect", async () => {
-    console.log(`Agent Disconnected: ${agent.name} (${socket.id})`);
-    agent.status = "offline";
-    agent.socketId = null;
-    await agent.save();
+    console.log(`Agent Disconnected: ${agent.name}`);
+    await Agent.findByIdAndUpdate(agent._id, {
+      status: "offline",
+      socketId: null,
+    });
   });
 });
 

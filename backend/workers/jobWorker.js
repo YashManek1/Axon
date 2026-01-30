@@ -28,38 +28,45 @@ const jobProcessor = async (job) => {
         data: response.data,
       };
     } else if (payload.command) {
-      console.log(`Shell Job detected. Looking for Agent for Org: ${orgId}`);
-
+      console.log(
+        `💻 Shell Job Detected. Looking for Agents for Org: ${orgId}`,
+      );
       const agent = await Agent.findOne({ orgId: orgId, status: "online" });
-
       if (!agent || !agent.socketId) {
         throw new Error(
           `No Online Agents found for Org ${orgId}. Is your Rust Agent running?`,
         );
       }
-
       console.log(
-        `Dispatching to Agent: ${agent.name} (Socket: ${agent.socketId})`,
+        `⚡ Dispatching to Agent: ${agent.name} (Socket: ${agent.socketId})`,
       );
-
+      // 1. Get the Specific Socket Instance
+      const socket = io.sockets.sockets.get(agent.socketId);
+      if (!socket)
+        throw new Error("Agent socket not found in active connections.");
+      // 2. Dispatch & Wait for Event
       const agentResponse = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(new Error("Agent Execution Timed out (No reply in 10s)"));
+        const timeout = setTimeout(() => {
+          // Cleanup listener if timed out
+          socket.removeAllListeners("command_result");
+          reject(new Error("Agent Execution Timed Out (10s)"));
         }, 10000);
-
-        io.to(agent.socketId).emit(
-          "execute_command",
-          {
-            jobId: jobId,
-            command: payload.command,
-          },
-          (acknowledgement) => {
-            clearTimeout(timer);
-            resolve(acknowledgement);
-          },
-        );
+        // A. Listen for the specific response
+        const listener = (data) => {
+          // Ensure this result matches the current Job ID
+          if (data.jobId === jobId) {
+            clearTimeout(timeout);
+            socket.off("command_result", listener); // Cleanup
+            resolve(data);
+          }
+        };
+        socket.on("command_result", listener);
+        // B. Send the Command
+        socket.emit("execute_command", {
+          jobId: jobId,
+          command: payload.command,
+        });
       });
-
       if (agentResponse.error) throw new Error(agentResponse.error);
       output = agentResponse;
     }
@@ -76,19 +83,20 @@ const jobProcessor = async (job) => {
   }
 
   try {
-    if (!orgId) console.warn("Warning: orgId missing in job data");
-
     await jobHistoryModel.create({
-      jobId: jobId,
-      status: status,
-      output: output,
-      error: error,
+      jobId,
+      orgId,
+      status,
       executedAt: new Date(),
-      orgId: orgId,
+      exitCode: output?.exitCode || 0,
+      output: {
+        stdout: output?.stdout || "",
+        stderr: output?.stderr || "",
+      },
     });
-    console.log("History Saved.");
-  } catch (histErr) {
-    console.error("Failed to save history:", histErr);
+    console.log("History Saved (Structured).");
+  } catch (e) {
+    console.error("Failed to save history:", e);
   }
 
   if (webhookUrl) {

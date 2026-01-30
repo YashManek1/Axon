@@ -37,11 +37,12 @@ const AgentSchema = new mongoose.Schema(
       default: null,
     },
     systemInfo: {
-      // Stores metadata sent by the Rust Agent (OS, CPU, etc.)
       os: String,
       arch: String,
       hostname: String,
-      version: String,
+      cpuLoad: Number, 
+      ramTotal: Number, 
+      ramUsed: Number, 
     },
   },
   { timestamps: true },
