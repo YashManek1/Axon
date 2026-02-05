@@ -7,14 +7,14 @@ const HttpPayloadSchema = new mongoose.Schema(
     headers: { type: Object, default: {} },
     body: { type: mongoose.Schema.Types.Mixed, default: null },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const ShellPayloadSchema = new mongoose.Schema(
   {
     command: { type: String, required: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const JobSchema = new mongoose.Schema({
@@ -32,7 +32,20 @@ const JobSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Organization",
     required: true,
+    index: true,
   },
+  sink: {
+    type: { type: String, enum: ["mongo", null], default: null },
+    uri: { type: String, default: null },
+    collection: { type: String, default: null },
+  },
+  status: {
+    type: String,
+    default: "active",
+    enum: ["active", "paused"],
+    index: true,
+  },
+  nextRunAt: { type: Date, index: true },
   dependsOn: [{ type: mongoose.Schema.Types.ObjectId, ref: "Job" }],
 });
 

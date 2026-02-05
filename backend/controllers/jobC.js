@@ -17,25 +17,33 @@ export const createJob = async (req, res) => {
       webhookUrl,
       orgId,
       dependsOn,
+      status,
+      nextRunAt,
+      sink,
     } = req.body;
+
     const userId = req.user.id;
     const user = await userModel.findById(userId);
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
+
     if (!name || !type || !schedule || !payload) {
       return res.status(400).json({ message: "Missing required fields" });
     }
+
     if (!["http", "shell"].includes(type)) {
       return res.status(400).json({ message: "Invalid job type" });
     }
+
     if (type === "http") {
       if (!payload.url || !payload.method) {
         return res
           .status(400)
           .json({ message: "HTTP job requires url and method in payload" });
       }
-    } else if (type == "shell") {
+    } else if (type === "shell") {
       if (!payload.command) {
         return res
           .status(400)
@@ -45,7 +53,7 @@ export const createJob = async (req, res) => {
 
     const validatedDependencies = await validateDependencies(
       dependsOn,
-      user.orgId
+      user.orgId,
     );
     if (validatedDependencies.error) {
       return res.status(400).json({ message: validatedDependencies.error });
@@ -62,11 +70,14 @@ export const createJob = async (req, res) => {
       webhookUrl,
       orgId: user.orgId,
       dependsOn: validatedDependencies.dependencies,
+      sink: sink || { type: null, uri: null, collection: null },
+      status: status || "active",
+      nextRunAt: nextRunAt || null,
     });
 
     const circularCheck = await checkCircularDependency(
       newJob._id,
-      validatedDependencies.dependencies
+      validatedDependencies.dependencies,
     );
     if (circularCheck.isCircular) {
       return res.status(400).json({
@@ -84,11 +95,12 @@ export const createJob = async (req, res) => {
           payload: newJob.payload,
           orgId: user.orgId,
           webhookUrl: newJob.webhookUrl,
+          sink: newJob.sink,
         },
         {
           repeat: { pattern: schedule },
           jobId: String(newJob._id),
-        }
+        },
       );
     }
 
@@ -155,10 +167,13 @@ export const updateJob = async (req, res) => {
       retryLimit,
       dependsOn,
       webhookUrl,
+      sink,
     } = req.body;
 
     if (name !== undefined) job.name = name;
     if (webhookUrl !== undefined) job.webhookUrl = webhookUrl;
+    if (sink !== undefined) job.sink = sink;
+
     if (type !== undefined) {
       if (!["http", "shell"].includes(type)) {
         return res.status(400).json({ message: "Invalid job type" });
@@ -173,7 +188,7 @@ export const updateJob = async (req, res) => {
     if (dependsOn !== undefined) {
       const validatedDependencies = await validateDependencies(
         dependsOn,
-        req.user.orgId
+        req.user.orgId,
       );
       if (validatedDependencies.error) {
         return res.status(400).json({ message: validatedDependencies.error });
@@ -181,7 +196,7 @@ export const updateJob = async (req, res) => {
 
       const circularCheck = await checkCircularDependency(
         job._id,
-        validatedDependencies.dependencies
+        validatedDependencies.dependencies,
       );
       if (circularCheck.isCircular) {
         return res.status(400).json({
@@ -194,6 +209,7 @@ export const updateJob = async (req, res) => {
 
     const effectiveType = type !== undefined ? type : job.type;
     const effectivePayload = payload !== undefined ? payload : job.payload;
+
     if (effectiveType === "http") {
       if (!effectivePayload.url || !effectivePayload.method) {
         return res
@@ -219,7 +235,7 @@ export const updateJob = async (req, res) => {
       await scheduledJobsQueue.removeRepeatable(
         JOB_NAME,
         { pattern: oldSchedule },
-        jobIdStr
+        jobIdStr,
       );
     } catch (err) {}
 
@@ -227,15 +243,16 @@ export const updateJob = async (req, res) => {
       await scheduledJobsQueue.add(
         JOB_NAME,
         {
-          jobId: newJob._id,
-          payload: newJob.payload,
-          orgId: user.orgId,
-          webhookUrl: newJob.webhookUrl,
+          jobId: job._id,
+          payload: job.payload,
+          orgId: req.user.orgId,
+          webhookUrl: job.webhookUrl,
+          sink: job.sink,
         },
         {
           repeat: { pattern: job.schedule },
           jobId: jobIdStr,
-        }
+        },
       );
     }
 
@@ -266,7 +283,7 @@ export const deleteJob = async (req, res) => {
       await scheduledJobsQueue.removeRepeatable(
         JOB_NAME,
         { pattern: job.schedule },
-        jobIdStr
+        jobIdStr,
       );
     } catch (err) {}
 
@@ -300,22 +317,23 @@ export const toggleJobStatus = async (req, res) => {
       await scheduledJobsQueue.add(
         JOB_NAME,
         {
-          jobId: newJob._id,
-          payload: newJob.payload,
-          orgId: user.orgId,
-          webhookUrl: newJob.webhookUrl,
+          jobId: job._id,
+          payload: job.payload,
+          orgId: req.user.orgId,
+          webhookUrl: job.webhookUrl,
+          sink: job.sink,
         },
         {
           repeat: { pattern: job.schedule },
           jobId: jobIdStr,
-        }
+        },
       );
     } else {
       try {
         await scheduledJobsQueue.removeRepeatable(
           JOB_NAME,
           { pattern: job.schedule },
-          jobIdStr
+          jobIdStr,
         );
       } catch (err) {}
     }
@@ -331,7 +349,10 @@ export const toggleJobStatus = async (req, res) => {
 export const runJobNow = async (req, res) => {
   try {
     const { jobId } = req.params;
-    const job = await jobModel.findOne({ _id: jobId, orgId: req.user.orgId });
+    const job = await jobModel.findOne({
+      _id: jobId,
+      orgId: req.user.orgId,
+    });
 
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
@@ -344,11 +365,12 @@ export const runJobNow = async (req, res) => {
         payload: job.payload,
         orgId: req.user.orgId,
         webhookUrl: job.webhookUrl,
+        sink: job.sink,
       },
       {
         removeOnComplete: true,
         removeOnFail: true,
-      }
+      },
     );
 
     return res.status(200).json({ message: "Job triggered manually" });
@@ -364,7 +386,7 @@ async function validateDependencies(dependsOn, orgId) {
   }
 
   const invalidIds = dependsOn.filter(
-    (id) => !mongoose.Types.ObjectId.isValid(id)
+    (id) => !mongoose.Types.ObjectId.isValid(id),
   );
   if (invalidIds.length > 0) {
     return {
@@ -384,7 +406,7 @@ async function validateDependencies(dependsOn, orgId) {
     return {
       dependencies: [],
       error: `Dependency jobs not found or not in same organization: ${missingIds.join(
-        ", "
+        ", ",
       )}`,
     };
   }
@@ -396,7 +418,7 @@ async function checkCircularDependency(
   jobId,
   dependencies,
   visited = new Set(),
-  path = []
+  path = [],
 ) {
   const jobIdStr = jobId.toString();
 
@@ -411,7 +433,6 @@ async function checkCircularDependency(
   path.push(jobIdStr);
 
   for (const depId of dependencies) {
-    const depIdStr = depId.toString();
     const depJob = await jobModel.findById(depId).select("dependsOn");
 
     if (depJob && depJob.dependsOn && depJob.dependsOn.length > 0) {
@@ -419,7 +440,7 @@ async function checkCircularDependency(
         depId,
         depJob.dependsOn,
         new Set(visited),
-        [...path]
+        [...path],
       );
       if (result.isCircular) {
         return result;

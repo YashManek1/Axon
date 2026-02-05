@@ -4,11 +4,12 @@ import jobHistoryModel from "../models/jobHistory.js";
 import Agent from "../models/agent.js";
 import { io } from "../server.js";
 import axios from "axios";
+import mongoose from "mongoose";
 
 const jobProcessor = async (job) => {
   console.log(`Worker picked up job: ${job.id} from queue: ${job.queueName}`);
 
-  const { jobId, payload, orgId, webhookUrl } = job.data;
+  const { jobId, payload, orgId, webhookUrl, sink } = job.data;
 
   let status = "success";
   let output = null;
@@ -28,9 +29,7 @@ const jobProcessor = async (job) => {
         data: response.data,
       };
     } else if (payload.command) {
-      console.log(
-        `💻 Shell Job Detected. Looking for Agents for Org: ${orgId}`,
-      );
+      console.log(`Shell Job Detected. Looking for Agents for Org: ${orgId}`);
       const agent = await Agent.findOne({ orgId: orgId, status: "online" });
       if (!agent || !agent.socketId) {
         throw new Error(
@@ -38,7 +37,7 @@ const jobProcessor = async (job) => {
         );
       }
       console.log(
-        `⚡ Dispatching to Agent: ${agent.name} (Socket: ${agent.socketId})`,
+        `Dispatching to Agent: ${agent.name} (Socket: ${agent.socketId})`,
       );
       // 1. Get the Specific Socket Instance
       const socket = io.sockets.sockets.get(agent.socketId);
@@ -47,16 +46,14 @@ const jobProcessor = async (job) => {
       // 2. Dispatch & Wait for Event
       const agentResponse = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          // Cleanup listener if timed out
           socket.removeAllListeners("command_result");
           reject(new Error("Agent Execution Timed Out (10s)"));
         }, 10000);
         // A. Listen for the specific response
         const listener = (data) => {
-          // Ensure this result matches the current Job ID
           if (data.jobId === jobId) {
             clearTimeout(timeout);
-            socket.off("command_result", listener); // Cleanup
+            socket.off("command_result", listener);
             resolve(data);
           }
         };
@@ -69,6 +66,22 @@ const jobProcessor = async (job) => {
       });
       if (agentResponse.error) throw new Error(agentResponse.error);
       output = agentResponse;
+    }
+    if (sink && sink.type === "mongo" && sink.uri && sink.collection) {
+      console.log("Sinking output to MongoDB Sink...");
+      try {
+        const conn = await mongoose.createConnection(sink.uri).asPromise();
+        const dataToSink = payload.url ? output.data : output;
+        await conn.collection(sink.collection).insertOne({
+          jobId,
+          executedAt: new Date(),
+          data: dataToSink,
+        });
+        await conn.close();
+        console.log("Data successfully sunk.");
+      } catch (sinkErr) {
+        console.error("Sink Failed:", sinkErr.message);
+      }
     }
   } catch (err) {
     status = "failure";
