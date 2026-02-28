@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { toast } from "../../stores/toastStore";
+import { useAgents } from "../../hooks/useDashboardData";
+import { Loader2 } from "lucide-react";
 
 const cpuData = [
   { v: 35 },
@@ -35,45 +37,6 @@ const ramData = [
   { v: 69 },
   { v: 70 },
   { v: 68 },
-];
-
-const agents = [
-  {
-    name: "rust-agent-01",
-    region: "us-east-1a",
-    version: "v2.4.1",
-    status: "Online",
-    cpu: 42.3,
-    ram: 68.7,
-    uptime: "23d 14h",
-    jobs: "1,247",
-    errors: 3,
-    network: "842 MB",
-  },
-  {
-    name: "rust-agent-02",
-    region: "eu-west-2b",
-    version: "v2.4.1",
-    status: "Online",
-    cpu: 28.6,
-    ram: 54.2,
-    uptime: "18d 7h",
-    jobs: "892",
-    errors: 1,
-    network: "623 MB",
-  },
-  {
-    name: "rust-agent-03",
-    region: "ap-south-1c",
-    version: "v2.4.0",
-    status: "Online",
-    cpu: 71.8,
-    ram: 82.4,
-    uptime: "31d 2h",
-    jobs: "2,134",
-    errors: 7,
-    network: "1.2 GB",
-  },
 ];
 
 const menuOptions = [
@@ -167,6 +130,7 @@ function AgentMenu({
 
 export default function AgentGrid() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const { data: agents, isLoading } = useAgents();
 
   return (
     <div>
@@ -182,120 +146,155 @@ export default function AgentGrid() {
         </div>
       </div>
 
-      <div className="space-y-4">
-        {agents.map((agent) => (
-          <div
-            key={agent.name}
-            className="bg-[#111118] border border-[#23232f] rounded-xl p-5"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <img
-                  src="/axon-logo.png"
-                  alt="Agent"
-                  className="w-10 h-10 rounded-xl object-contain"
-                />
-                <div>
-                  <h3 className="font-semibold text-white">{agent.name}</h3>
-                  <p className="text-xs text-gray-400">
-                    {agent.region} • {agent.version}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-full text-sm text-emerald-400">
-                  <span className="w-2 h-2 bg-emerald-400 rounded-full" />{" "}
-                  Status: {agent.status}
-                </span>
-                <div className="relative">
-                  <button
-                    aria-label="Agent options"
-                    onClick={() =>
-                      setOpenMenu(openMenu === agent.name ? null : agent.name)
-                    }
-                    className="p-1 text-gray-400 hover:text-white"
-                  >
-                    <MoreVertical className="w-5 h-5" />
-                  </button>
-                  <AgentMenu
-                    agentName={agent.name}
-                    open={openMenu === agent.name}
-                    onClose={() => setOpenMenu(null)}
-                  />
-                </div>
-              </div>
-            </div>
+      {isLoading ? (
+        <div className="flex justify-center items-center py-20">
+          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+        </div>
+      ) : !agents || agents.length === 0 ? (
+        <div className="text-center py-20 text-gray-500">
+          No agents found. Deploy an agent to get started.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {agents.map((agent) => {
+            const cpuLoad = agent.systemInfo?.cpuLoad ?? 0;
+            const ramTotal = agent.systemInfo?.ramTotal ?? 1;
+            const ramUsed = agent.systemInfo?.ramUsed ?? 0;
+            const ramPercent =
+              ramTotal > 0 ? Math.round((ramUsed / ramTotal) * 100) : 0;
+            const displayStatus =
+              agent.status === "online"
+                ? "Online"
+                : agent.status === "busy"
+                  ? "Busy"
+                  : "Offline";
+            const statusColor =
+              agent.status === "online"
+                ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                : agent.status === "busy"
+                  ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/30"
+                  : "text-gray-400 bg-gray-500/10 border-gray-500/30";
+            const dotColor =
+              agent.status === "online"
+                ? "bg-emerald-400"
+                : agent.status === "busy"
+                  ? "bg-yellow-400"
+                  : "bg-gray-400";
 
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">CPU Usage</span>
-                  <span className="text-emerald-400">{agent.cpu}%</span>
-                </div>
-                <div className="h-16 bg-[#0a0a0f] rounded-lg overflow-hidden">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={cpuData}>
-                      <Area
-                        type="monotone"
-                        dataKey="v"
-                        stroke="#3b82f6"
-                        fill="#3b82f6"
-                        fillOpacity={0.1}
-                        strokeWidth={2}
+            return (
+              <div
+                key={agent._id}
+                className="bg-[#111118] border border-[#23232f] rounded-xl p-5"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src="/axon-logo.png"
+                      alt="Agent"
+                      className="w-10 h-10 rounded-xl object-contain"
+                    />
+                    <div>
+                      <h3 className="font-semibold text-white">{agent.name}</h3>
+                      <p className="text-xs text-gray-400">
+                        {agent.systemInfo?.hostname || "Unknown region"} •{" "}
+                        {agent.systemInfo?.os || "Unknown"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex items-center gap-1.5 px-3 py-1 border rounded-full text-sm ${statusColor}`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${dotColor}`} />{" "}
+                      Status: {displayStatus}
+                    </span>
+                    <div className="relative">
+                      <button
+                        aria-label="Agent options"
+                        onClick={() =>
+                          setOpenMenu(openMenu === agent._id ? null : agent._id)
+                        }
+                        className="p-1 text-gray-400 hover:text-white"
+                      >
+                        <MoreVertical className="w-5 h-5" />
+                      </button>
+                      <AgentMenu
+                        agentName={agent.name}
+                        open={openMenu === agent._id}
+                        onClose={() => setOpenMenu(null)}
                       />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">RAM Usage</span>
-                  <span className="text-purple-400">{agent.ram}%</span>
-                </div>
-                <div className="h-16 bg-[#0a0a0f] rounded-lg overflow-hidden">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={ramData}>
-                      <Area
-                        type="monotone"
-                        dataKey="v"
-                        stroke="#a855f7"
-                        fill="#a855f7"
-                        fillOpacity={0.1}
-                        strokeWidth={2}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-4 gap-4 pt-4 border-t border-[#23232f]">
-              <div>
-                <p className="text-xs text-gray-400">Uptime</p>
-                <p className="text-sm font-semibold text-white">
-                  {agent.uptime}
-                </p>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-400">CPU Usage</span>
+                      <span className="text-emerald-400">
+                        {cpuLoad.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="h-16 bg-[#0a0a0f] rounded-lg overflow-hidden">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={cpuData}>
+                          <Area
+                            type="monotone"
+                            dataKey="v"
+                            stroke="#3b82f6"
+                            fill="#3b82f6"
+                            fillOpacity={0.1}
+                            strokeWidth={2}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-400">RAM Usage</span>
+                      <span className="text-purple-400">{ramPercent}%</span>
+                    </div>
+                    <div className="h-16 bg-[#0a0a0f] rounded-lg overflow-hidden">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={ramData}>
+                          <Area
+                            type="monotone"
+                            dataKey="v"
+                            stroke="#a855f7"
+                            fill="#a855f7"
+                            fillOpacity={0.1}
+                            strokeWidth={2}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-4 pt-4 border-t border-[#23232f]">
+                  <div>
+                    <p className="text-xs text-gray-400">Uptime</p>
+                    <p className="text-sm font-semibold text-white">-</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">Jobs Processed</p>
+                    <p className="text-sm font-semibold text-white">-</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">Errors</p>
+                    <p className="text-sm font-semibold text-red-400">-</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">Network I/O</p>
+                    <p className="text-sm font-semibold text-white">-</p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-gray-400">Jobs Processed</p>
-                <p className="text-sm font-semibold text-white">{agent.jobs}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Errors</p>
-                <p className="text-sm font-semibold text-red-400">
-                  {agent.errors}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Network I/O</p>
-                <p className="text-sm font-semibold text-white">
-                  {agent.network}
-                </p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

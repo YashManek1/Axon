@@ -110,12 +110,17 @@ fn main() {
             let heartbeat_socket = socket.clone();
 
             thread::spawn(move || {
+                thread::sleep(Duration::from_secs(2)); // wait extra time to let connection finish
                 loop {
-                    thread::sleep(Duration::from_secs(5)); // Every 5 seconds
                     let stats = get_system_stats();
                     if let Err(e) = heartbeat_socket.emit("heartbeat", stats) {
-                        eprintln!("Heartbeat failed: {:?}", e);
+                        let err_msg = format!("{:?}", e);
+                        // Suppress the spammy "IllegalActionBeforeOpen" if it's temporarily reconnecting
+                        if !err_msg.contains("IllegalActionBeforeOpen") {
+                            eprintln!("Heartbeat failed: {}", err_msg);
+                        }
                     }
+                    thread::sleep(Duration::from_secs(5));
                 }
             });
             // Keep main thread alive

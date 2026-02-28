@@ -59,8 +59,13 @@ export function decrypt(encryptedText) {
 
   const key = getKey();
 
-  const [ivHex, cipherHex] = encryptedText.split(":");
-  if (!ivHex || !cipherHex) return encryptedText; // Malformed, return as-is
+  const firstColon = encryptedText.indexOf(":");
+  const ivHex = encryptedText.substring(0, firstColon);
+  const cipherHex = encryptedText.substring(firstColon + 1);
+
+  // If IV is not 32 hex chars, it's likely a plaintext URL (e.g., "http://...")
+  if (ivHex.length !== 32) return encryptedText;
+  if (!cipherHex) return encryptedText;
 
   try {
     const iv = Buffer.from(ivHex, "hex");

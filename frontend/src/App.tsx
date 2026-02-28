@@ -6,6 +6,7 @@ import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import DashboardPage from "./pages/dashboard/DashboardPage";
+import HomePage from "./pages/HomePage";
 import ToastContainer from "./components/ui/ToastContainer";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
 import "./toast-animation.css";
@@ -28,18 +29,18 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route
-            path="/"
+            path="/dashboard"
             element={
               <ProtectedRoute>
                 <DashboardLayout />
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/dashboard" />} />
-            <Route path="dashboard" element={<DashboardPage />} />
+            <Route index element={<DashboardPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

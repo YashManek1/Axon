@@ -26,6 +26,15 @@ export const createJob = async (req, res) => {
       status,
       nextRunAt,
       sink,
+      description,
+      category,
+      priority,
+      tags,
+      timeout,
+      notifications,
+      executionWindow,
+      scheduleType,
+      timezone,
     } = req.body;
 
     const userId = req.user.id;
@@ -84,6 +93,15 @@ export const createJob = async (req, res) => {
       sink: safeSink,
       status: status || "active",
       nextRunAt: nextRunAt || null,
+      description,
+      category,
+      priority,
+      tags,
+      timeout,
+      notifications,
+      executionWindow,
+      scheduleType,
+      timezone,
     });
 
     const circularCheck = await checkCircularDependency(
@@ -192,6 +210,15 @@ export const updateJob = async (req, res) => {
       dependsOn,
       webhookUrl,
       sink,
+      description,
+      category,
+      priority,
+      tags,
+      timeout,
+      notifications,
+      executionWindow,
+      scheduleType,
+      timezone,
     } = req.body;
 
     if (name !== undefined) job.name = name;
@@ -208,6 +235,15 @@ export const updateJob = async (req, res) => {
       }
       job.type = type;
     }
+    if (description !== undefined) job.description = description;
+    if (category !== undefined) job.category = category;
+    if (priority !== undefined) job.priority = priority;
+    if (tags !== undefined) job.tags = tags;
+    if (timeout !== undefined) job.timeout = timeout;
+    if (notifications !== undefined) job.notifications = notifications;
+    if (executionWindow !== undefined) job.executionWindow = executionWindow;
+    if (scheduleType !== undefined) job.scheduleType = scheduleType;
+    if (timezone !== undefined) job.timezone = timezone;
     if (schedule !== undefined) {
       job.schedule = schedule;
     }
