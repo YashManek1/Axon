@@ -1,21 +1,80 @@
 import { Worker } from "bullmq";
 import { redisConnection } from "../config/queue.js";
 import jobHistoryModel from "../models/jobHistory.js";
+import jobModel from "../models/job.js";
 import Agent from "../models/agent.js";
 import { io } from "../server.js";
 import axios from "axios";
 import mongoose from "mongoose";
+import { decrypt } from "../utils/crypto.js";
+
+async function checkDependenciesMet(jobId) {
+  const job = await jobModel.findById(jobId).select("dependsOn").lean();
+
+  if (!job || !job.dependsOn || job.dependsOn.length === 0) {
+    return { met: true, failedDeps: [] };
+  }
+
+  const failedDeps = [];
+
+  for (const depId of job.dependsOn) {
+    const depIdStr = depId.toString();
+
+    const latestHistory = await jobHistoryModel
+      .findOne({ jobId: depIdStr })
+      .sort({ executedAt: -1 })
+      .select("status executedAt")
+      .lean();
+
+    if (!latestHistory) {
+      failedDeps.push({
+        jobId: depIdStr,
+        reason: "never_executed",
+      });
+      continue;
+    }
+
+    if (latestHistory.status !== "success") {
+      failedDeps.push({
+        jobId: depIdStr,
+        reason: `last_status_${latestHistory.status}`,
+        lastRun: latestHistory.executedAt,
+      });
+    }
+  }
+
+  return {
+    met: failedDeps.length === 0,
+    failedDeps,
+  };
+}
 
 const jobProcessor = async (job) => {
   console.log(`Worker picked up job: ${job.id} from queue: ${job.queueName}`);
 
-  const { jobId, payload, orgId, webhookUrl, sink } = job.data;
+  const { jobId, payload, orgId, webhookUrl, sink, dependsOn } = job.data;
 
   let status = "success";
   let output = null;
   let error = null;
+  const startTime = Date.now();
 
   try {
+    if (dependsOn && dependsOn.length > 0) {
+      console.log(
+        `Job ${jobId} has ${dependsOn.length} dependencies. Checking...`,
+      );
+      const depCheck = await checkDependenciesMet(jobId);
+
+      if (!depCheck.met) {
+        const failedNames = depCheck.failedDeps
+          .map((d) => `${d.jobId} (${d.reason})`)
+          .join(", ");
+        throw new Error(`Dependencies not met. Blocked by: [${failedNames}]`);
+      }
+      console.log(`All dependencies met for job ${jobId}. Proceeding...`);
+    }
+
     if (payload.url) {
       console.log(`Running HTTP Job: ${payload.method} ${payload.url}`);
       const response = await axios({
@@ -39,17 +98,15 @@ const jobProcessor = async (job) => {
       console.log(
         `Dispatching to Agent: ${agent.name} (Socket: ${agent.socketId})`,
       );
-      // 1. Get the Specific Socket Instance
       const socket = io.sockets.sockets.get(agent.socketId);
       if (!socket)
         throw new Error("Agent socket not found in active connections.");
-      // 2. Dispatch & Wait for Event
+
       const agentResponse = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           socket.removeAllListeners("command_result");
           reject(new Error("Agent Execution Timed Out (10s)"));
         }, 10000);
-        // A. Listen for the specific response
         const listener = (data) => {
           if (data.jobId === jobId) {
             clearTimeout(timeout);
@@ -58,7 +115,6 @@ const jobProcessor = async (job) => {
           }
         };
         socket.on("command_result", listener);
-        // B. Send the Command
         socket.emit("execute_command", {
           jobId: jobId,
           command: payload.command,
@@ -67,13 +123,16 @@ const jobProcessor = async (job) => {
       if (agentResponse.error) throw new Error(agentResponse.error);
       output = agentResponse;
     }
+
     if (sink && sink.type === "mongo" && sink.uri && sink.collection) {
       console.log("Sinking output to MongoDB Sink...");
       try {
-        const conn = await mongoose.createConnection(sink.uri).asPromise();
+        const decryptedUri = decrypt(sink.uri);
+        const conn = await mongoose.createConnection(decryptedUri).asPromise();
         const dataToSink = payload.url ? output.data : output;
         await conn.collection(sink.collection).insertOne({
           jobId,
+          orgId,
           executedAt: new Date(),
           data: dataToSink,
         });
@@ -95,19 +154,24 @@ const jobProcessor = async (job) => {
     }
   }
 
+  const duration = Date.now() - startTime;
   try {
     await jobHistoryModel.create({
       jobId,
       orgId,
       status,
+      duration,
       executedAt: new Date(),
-      exitCode: output?.exitCode || 0,
+      exitCode: output?.exitCode || (status === "success" ? 0 : 1),
       output: {
-        stdout: output?.stdout || "",
-        stderr: output?.stderr || "",
+        stdout:
+          typeof output === "object"
+            ? JSON.stringify(output)
+            : output?.stdout || "",
+        stderr: error || output?.stderr || "",
       },
     });
-    console.log("History Saved (Structured).");
+    console.log(`History Saved (${status}, ${duration}ms).`);
   } catch (e) {
     console.error("Failed to save history:", e);
   }
@@ -119,6 +183,7 @@ const jobProcessor = async (job) => {
         jobId,
         status,
         output,
+        duration,
         timestamp: new Date(),
       });
     } catch (webhookErr) {
@@ -126,7 +191,7 @@ const jobProcessor = async (job) => {
     }
   }
 
-  return { status, jobId };
+  return { status, jobId, duration };
 };
 
 export const scheduledWorker = new Worker("scheduled-jobs", jobProcessor, {

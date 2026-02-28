@@ -2,8 +2,14 @@ import userModel from "../models/user.js";
 import jobModel from "../models/job.js";
 import { scheduledJobsQueue, immediateJobsQueue } from "../config/queue.js";
 import mongoose from "mongoose";
+import { encryptSink, decryptSink } from "../utils/crypto.js";
 
 const JOB_NAME = "dispatch-job";
+
+// ─── Helper: Prepare sink for queue (decrypt so worker gets plaintext) ───
+function prepareSinkForQueue(sink) {
+  return decryptSink(sink);
+}
 
 export const createJob = async (req, res) => {
   try {
@@ -59,6 +65,11 @@ export const createJob = async (req, res) => {
       return res.status(400).json({ message: validatedDependencies.error });
     }
 
+    // ─── T2: ENCRYPT sink.uri before saving to MongoDB ───
+    const safeSink = sink
+      ? encryptSink(sink)
+      : { type: null, uri: null, collection: null };
+
     const newJob = new jobModel({
       userId: userId,
       name,
@@ -70,7 +81,7 @@ export const createJob = async (req, res) => {
       webhookUrl,
       orgId: user.orgId,
       dependsOn: validatedDependencies.dependencies,
-      sink: sink || { type: null, uri: null, collection: null },
+      sink: safeSink,
       status: status || "active",
       nextRunAt: nextRunAt || null,
     });
@@ -95,7 +106,9 @@ export const createJob = async (req, res) => {
           payload: newJob.payload,
           orgId: user.orgId,
           webhookUrl: newJob.webhookUrl,
-          sink: newJob.sink,
+          // ─── Pass DECRYPTED sink to queue so worker can use it ───
+          sink: prepareSinkForQueue(newJob.sink),
+          dependsOn: validatedDependencies.dependencies,
         },
         {
           repeat: { pattern: schedule },
@@ -119,7 +132,14 @@ export const getJobs = async (req, res) => {
       .find({ orgId: req.user.orgId })
       .populate("userId", "username email");
 
-    return res.status(200).json(jobs);
+    // ─── T2: Decrypt sink.uri before sending to frontend ───
+    const decryptedJobs = jobs.map((job) => {
+      const jobObj = job.toObject();
+      jobObj.sink = decryptSink(jobObj.sink);
+      return jobObj;
+    });
+
+    return res.status(200).json(decryptedJobs);
   } catch (error) {
     console.error("Error fetching jobs:", error);
     return res.status(500).json({ message: "Internal server error" });
@@ -137,7 +157,11 @@ export const getJobById = async (req, res) => {
       return res.status(404).json({ message: "Job not found" });
     }
 
-    return res.status(200).json(job);
+    // ─── T2: Decrypt sink.uri before sending to frontend ───
+    const jobObj = job.toObject();
+    jobObj.sink = decryptSink(jobObj.sink);
+
+    return res.status(200).json(jobObj);
   } catch (error) {
     console.error("Error fetching job by ID:", error);
     return res.status(500).json({ message: "Internal server error" });
@@ -172,7 +196,11 @@ export const updateJob = async (req, res) => {
 
     if (name !== undefined) job.name = name;
     if (webhookUrl !== undefined) job.webhookUrl = webhookUrl;
-    if (sink !== undefined) job.sink = sink;
+
+    // ─── T2: ENCRYPT sink.uri before saving to MongoDB ───
+    if (sink !== undefined) {
+      job.sink = encryptSink(sink);
+    }
 
     if (type !== undefined) {
       if (!["http", "shell"].includes(type)) {
@@ -247,7 +275,9 @@ export const updateJob = async (req, res) => {
           payload: job.payload,
           orgId: req.user.orgId,
           webhookUrl: job.webhookUrl,
-          sink: job.sink,
+          // ─── Pass DECRYPTED sink to queue so worker can use it ───
+          sink: prepareSinkForQueue(job.sink),
+          dependsOn: job.dependsOn || [],
         },
         {
           repeat: { pattern: job.schedule },
@@ -321,7 +351,9 @@ export const toggleJobStatus = async (req, res) => {
           payload: job.payload,
           orgId: req.user.orgId,
           webhookUrl: job.webhookUrl,
-          sink: job.sink,
+          // ─── Pass DECRYPTED sink to queue ───
+          sink: prepareSinkForQueue(job.sink),
+          dependsOn: job.dependsOn || [],
         },
         {
           repeat: { pattern: job.schedule },
@@ -365,7 +397,9 @@ export const runJobNow = async (req, res) => {
         payload: job.payload,
         orgId: req.user.orgId,
         webhookUrl: job.webhookUrl,
-        sink: job.sink,
+        // ─── Pass DECRYPTED sink to queue ───
+        sink: prepareSinkForQueue(job.sink),
+        dependsOn: job.dependsOn || [],
       },
       {
         removeOnComplete: true,

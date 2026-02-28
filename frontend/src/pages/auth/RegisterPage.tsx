@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { authAPI } from "../../services/api";
 import { useAuthStore } from "../../stores/authStore";
 import { Mail, Lock, User, Building2, ArrowRight, Loader2 } from "lucide-react";
+import { toast } from "../../stores/toastStore";
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
@@ -24,10 +25,13 @@ export default function RegisterPage() {
     try {
       const res = await authAPI.register(form);
       login(res.data.user, res.data.token);
+      toast.success("Account Created!", "Welcome to Axon");
       navigate("/dashboard");
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } };
-      setError(error.response?.data?.message || "Registration failed");
+      const msg = error.response?.data?.message || "Registration failed";
+      setError(msg);
+      toast.error("Registration Failed", msg);
     } finally {
       setLoading(false);
     }
@@ -45,13 +49,13 @@ export default function RegisterPage() {
 
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-4">
+          <div className="inline-flex items-center gap-4 mb-4">
             <img
               src="/axon-logo.png"
               alt="Axon Logo"
-              className="w-12 h-12 rounded-xl object-contain"
+              className="w-20 h-20 rounded-2xl object-contain drop-shadow-lg"
             />
-            <span className="text-3xl font-bold text-white">Axon</span>
+            <span className="text-4xl font-bold text-white">Axon</span>
           </div>
           <p className="text-gray-400">Create your account</p>
         </div>

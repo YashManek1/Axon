@@ -1,49 +1,7 @@
 import { useState } from "react";
-
-const agents = [
-  {
-    name: "rust-agent-01",
-    region: "us-east-1a",
-    status: "Healthy",
-    statusColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
-    cpu: 42.3,
-    cpuColor: "bg-blue-500",
-    memory: 68.7,
-    memColor: "bg-purple-500",
-    disk: 34.2,
-    diskColor: "bg-green-500",
-    network: 52.8,
-    netColor: "bg-blue-400",
-  },
-  {
-    name: "rust-agent-02",
-    region: "eu-west-2b",
-    status: "Healthy",
-    statusColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
-    cpu: 28.6,
-    cpuColor: "bg-blue-500",
-    memory: 54.2,
-    memColor: "bg-purple-500",
-    disk: 41.8,
-    diskColor: "bg-green-500",
-    network: 38.4,
-    netColor: "bg-blue-400",
-  },
-  {
-    name: "rust-agent-03",
-    region: "ap-south-1c",
-    status: "Warning",
-    statusColor: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
-    cpu: 71.8,
-    cpuColor: "bg-blue-500",
-    memory: 82.4,
-    memColor: "bg-red-500",
-    disk: 58.9,
-    diskColor: "bg-yellow-500",
-    network: 67.3,
-    netColor: "bg-cyan-400",
-  },
-];
+import { Loader2 } from "lucide-react";
+import { useAgents } from "../../hooks/useDashboardData";
+import type { AgentData } from "../../hooks/useDashboardData";
 
 function ProgressBar({
   value,
@@ -55,24 +13,69 @@ function ProgressBar({
   warn?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex-1 h-2 bg-[#23232f] rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full ${color}`}
-          style={{ width: `${value}%` }}
-        />
-      </div>
-      <span
-        className={`text-sm font-medium w-14 text-right ${warn && value > 80 ? "text-red-400" : "text-gray-300"}`}
-      >
-        {value}%
-      </span>
+    <div className="h-2 bg-[#1a1a24] rounded-full overflow-hidden">
+      <div
+        className={`h-full rounded-full transition-all ${warn && value > 80 ? "bg-red-500" : color}`}
+        style={{ width: `${Math.min(value, 100)}%` }}
+      />
     </div>
   );
 }
 
+function getStatusBadge(status: string) {
+  switch (status) {
+    case "online":
+      return {
+        text: "Healthy",
+        classes: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+        dotColor: "bg-emerald-400",
+      };
+    case "busy":
+      return {
+        text: "Busy",
+        classes: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+        dotColor: "bg-yellow-400",
+      };
+    default:
+      return {
+        text: "Offline",
+        classes: "bg-gray-500/10 text-gray-400 border-gray-500/30",
+        dotColor: "bg-gray-400",
+      };
+  }
+}
+
 export default function AgentHealthMonitoring() {
+  const { data: agents, isLoading } = useAgents();
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  if (isLoading) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-white mb-4">
+          Agent Health Monitoring
+        </h2>
+        <div className="bg-[#111118] border border-[#23232f] rounded-xl p-10 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-gray-500 animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!agents || agents.length === 0) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold text-white mb-4">
+          Agent Health Monitoring
+        </h2>
+        <div className="bg-[#111118] border border-[#23232f] rounded-xl p-10 text-center">
+          <p className="text-gray-400">
+            No agents registered. Deploy an agent to see health metrics.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -80,16 +83,13 @@ export default function AgentHealthMonitoring() {
         <h2 className="text-xl font-bold text-white">
           Agent Health Monitoring
         </h2>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-400">Auto-refresh:</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-400">Auto-refresh</span>
           <button
+          aria-label="Toggle auto-refresh"
             onClick={() => setAutoRefresh(!autoRefresh)}
-            aria-label="Toggle auto-refresh"
-            className={`w-11 h-6 rounded-full transition-colors relative ${autoRefresh ? "bg-blue-600" : "bg-[#23232f]"}`}
+            className={`relative w-11 h-6 rounded-full transition-colors ${autoRefresh ? "bg-blue-600" : "bg-[#2d2d3a]"}`}
           >
-            <span
-              className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${autoRefresh ? "translate-x-5 left-0.5" : "left-0.5"}`}
-            />
             <span
               className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${autoRefresh ? "left-5.5" : "left-0.5"}`}
             />
@@ -98,57 +98,58 @@ export default function AgentHealthMonitoring() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {agents.map((agent) => (
-          <div
-            key={agent.name}
-            className="bg-[#111118] border border-[#23232f] rounded-xl p-5"
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center">
-                <span className="text-white text-lg">⚙</span>
-              </div>
-              <div>
-                <h3 className="font-semibold text-white">{agent.name}</h3>
-                <p className="text-xs text-gray-400">{agent.region}</p>
-              </div>
-              <span
-                className={`ml-auto px-2.5 py-0.5 text-xs font-medium rounded-full border ${agent.statusColor}`}
-              >
-                <span
-                  className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${agent.status === "Healthy" ? "bg-emerald-400" : "bg-yellow-400"}`}
-                />
-                {agent.status}
-              </span>
-            </div>
+        {agents.map((agent: AgentData) => {
+          const badge = getStatusBadge(agent.status);
+          const cpuLoad = agent.systemInfo?.cpuLoad ?? 0;
+          const ramTotal = agent.systemInfo?.ramTotal ?? 1;
+          const ramUsed = agent.systemInfo?.ramUsed ?? 0;
+          const ramPercent =
+            ramTotal > 0 ? Math.round((ramUsed / ramTotal) * 100) : 0;
 
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">CPU</span>
+          return (
+            <div
+              key={agent._id}
+              className="bg-[#111118] border border-[#23232f] rounded-xl p-5"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center">
+                  <span className="text-white text-lg">⚙</span>
                 </div>
-                <ProgressBar value={agent.cpu} color={agent.cpuColor} />
+                <div>
+                  <h3 className="font-semibold text-white">{agent.name}</h3>
+                  <p className="text-xs text-gray-400">
+                    {agent.systemInfo?.hostname || "Unknown host"}
+                  </p>
+                </div>
+                <span
+                  className={`ml-auto px-2.5 py-0.5 text-xs font-medium rounded-full border ${badge.classes}`}
+                >
+                  <span
+                    className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${badge.dotColor}`}
+                  />
+                  {badge.text}
+                </span>
               </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">Memory</span>
+
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-400">CPU</span>
+                    <span className="text-gray-300">{cpuLoad.toFixed(1)}%</span>
+                  </div>
+                  <ProgressBar value={cpuLoad} color="bg-blue-500" />
                 </div>
-                <ProgressBar value={agent.memory} color={agent.memColor} warn />
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">Disk</span>
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-400">Memory</span>
+                    <span className="text-gray-300">{ramPercent}%</span>
+                  </div>
+                  <ProgressBar value={ramPercent} color="bg-purple-500" warn />
                 </div>
-                <ProgressBar value={agent.disk} color={agent.diskColor} />
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">Network</span>
-                </div>
-                <ProgressBar value={agent.network} color={agent.netColor} />
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

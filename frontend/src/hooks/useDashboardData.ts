@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { jobsAPI, adminAPI } from "../services/api";
+import { jobsAPI, adminAPI, agentsAPI } from "../services/api";
 import { useAuthStore } from "../stores/authStore";
 
 export interface Job {
@@ -17,6 +17,26 @@ export interface Job {
   orgId: string | { name: string };
   webhookUrl?: string;
   sink?: { type: string | null; uri: string | null; collection: string | null };
+}
+
+export interface AgentData {
+  _id: string;
+  name: string;
+  userId: string;
+  orgId: string;
+  status: "online" | "offline" | "busy";
+  lastSeen: string | null;
+  socketId: string | null;
+  systemInfo?: {
+    os?: string;
+    arch?: string;
+    hostname?: string;
+    cpuLoad?: number;
+    ramTotal?: number;
+    ramUsed?: number;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HealthData {
@@ -50,6 +70,18 @@ export function useJobs() {
       return res.data;
     },
     refetchInterval: 30000,
+  });
+}
+
+// Fetch agents for user's organization
+export function useAgents() {
+  return useQuery<AgentData[]>({
+    queryKey: ["agents"],
+    queryFn: async () => {
+      const res = await agentsAPI.getAll();
+      return res.data;
+    },
+    refetchInterval: 15000,
   });
 }
 

@@ -6,6 +6,7 @@ import {
   XCircle,
   RefreshCw,
 } from "lucide-react";
+import { toast } from "../../stores/toastStore";
 
 const activities = [
   {
@@ -95,7 +96,12 @@ export default function RecentActivity() {
     <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5 h-full">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-white">Recent Activity</h2>
-        <button className="text-sm text-blue-400 hover:text-blue-300">
+        <button
+          onClick={() =>
+            toast.info("Activity Log", "Full activity log coming soon")
+          }
+          className="text-sm text-blue-400 hover:text-blue-300"
+        >
           View All
         </button>
       </div>

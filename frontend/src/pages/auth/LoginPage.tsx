@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { authAPI } from "../../services/api";
 import { useAuthStore } from "../../stores/authStore";
 import { Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { toast } from "../../stores/toastStore";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -19,10 +20,13 @@ export default function LoginPage() {
     try {
       const res = await authAPI.login({ email, password });
       login(res.data.user, res.data.token);
+      toast.success("Welcome back!", "You have signed in successfully");
       navigate("/dashboard");
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } };
-      setError(error.response?.data?.message || "Login failed");
+      const msg = error.response?.data?.message || "Login failed";
+      setError(msg);
+      toast.error("Login Failed", msg);
     } finally {
       setLoading(false);
     }
@@ -37,13 +41,13 @@ export default function LoginPage() {
 
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-4">
+          <div className="inline-flex items-center gap-4 mb-4">
             <img
               src="/axon-logo.png"
               alt="Axon Logo"
-              className="w-12 h-12 rounded-xl object-contain"
+              className="w-20 h-20 rounded-2xl object-contain drop-shadow-lg"
             />
-            <span className="text-3xl font-bold text-white">Axon</span>
+            <span className="text-4xl font-bold text-white">Axon</span>
           </div>
           <p className="text-gray-400">Distributed Job Scheduler</p>
         </div>

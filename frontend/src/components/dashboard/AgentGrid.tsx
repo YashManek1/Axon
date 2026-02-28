@@ -12,6 +12,7 @@ import {
   Eye,
 } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
+import { toast } from "../../stores/toastStore";
 
 const cpuData = [
   { v: 35 },
@@ -76,16 +77,59 @@ const agents = [
 ];
 
 const menuOptions = [
-  { label: "View Details", icon: Eye, color: "text-gray-300" },
-  { label: "View Logs", icon: Terminal, color: "text-gray-300" },
-  { label: "Health Check", icon: Activity, color: "text-gray-300" },
-  { label: "Restart Agent", icon: RefreshCw, color: "text-yellow-400" },
-  { label: "Configure", icon: Settings, color: "text-gray-300" },
-  { label: "Force Disconnect", icon: Power, color: "text-orange-400" },
-  { label: "Remove Agent", icon: Trash2, color: "text-red-400" },
+  {
+    label: "View Details",
+    icon: Eye,
+    color: "text-gray-300",
+    toastType: "info" as const,
+  },
+  {
+    label: "View Logs",
+    icon: Terminal,
+    color: "text-gray-300",
+    toastType: "info" as const,
+  },
+  {
+    label: "Health Check",
+    icon: Activity,
+    color: "text-gray-300",
+    toastType: "success" as const,
+  },
+  {
+    label: "Restart Agent",
+    icon: RefreshCw,
+    color: "text-yellow-400",
+    toastType: "warning" as const,
+  },
+  {
+    label: "Configure",
+    icon: Settings,
+    color: "text-gray-300",
+    toastType: "info" as const,
+  },
+  {
+    label: "Force Disconnect",
+    icon: Power,
+    color: "text-orange-400",
+    toastType: "warning" as const,
+  },
+  {
+    label: "Remove Agent",
+    icon: Trash2,
+    color: "text-red-400",
+    toastType: "error" as const,
+  },
 ];
 
-function AgentMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
+function AgentMenu({
+  agentName,
+  open,
+  onClose,
+}: {
+  agentName: string;
+  open: boolean;
+  onClose: () => void;
+}) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -109,7 +153,7 @@ function AgentMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
           key={opt.label}
           onClick={() => {
             onClose();
-            alert(`${opt.label} clicked`);
+            toast[opt.toastType](opt.label, `${opt.label} for ${agentName}`);
           }}
           className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-[#23232f] transition-colors ${opt.color} ${i === menuOptions.length - 1 ? "border-t border-[#23232f]" : ""}`}
         >
@@ -174,6 +218,7 @@ export default function AgentGrid() {
                     <MoreVertical className="w-5 h-5" />
                   </button>
                   <AgentMenu
+                    agentName={agent.name}
                     open={openMenu === agent.name}
                     onClose={() => setOpenMenu(null)}
                   />

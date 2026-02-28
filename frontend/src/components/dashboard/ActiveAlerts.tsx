@@ -1,4 +1,5 @@
 import { AlertTriangle, XCircle, Info } from "lucide-react";
+import { toast } from "../../stores/toastStore";
 
 const alerts = [
   {
@@ -44,41 +45,54 @@ export default function ActiveAlerts() {
     <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-white">Active Alerts</h2>
-        <button className="text-sm text-blue-400 hover:text-blue-300">
+        <button
+          onClick={() =>
+            toast.info("Configure Alerts", "Alert configuration coming soon")
+          }
+          className="text-sm text-blue-400 hover:text-blue-300"
+        >
           Configure
         </button>
       </div>
 
       <div className="space-y-3">
-        {alerts.map((alert, i) => (
+        {alerts.map((alertItem, i) => (
           <div
             key={i}
             className="bg-[#0a0a0f] border border-[#23232f] rounded-lg p-4"
           >
             <div className="flex items-start gap-3">
               <div
-                className={`w-8 h-8 ${alert.iconBg} rounded-full flex items-center justify-center shrink-0 mt-0.5`}
+                className={`w-8 h-8 ${alertItem.iconBg} rounded-full flex items-center justify-center shrink-0 mt-0.5`}
               >
-                <alert.icon className={`w-4 h-4 ${alert.iconColor}`} />
+                <alertItem.icon className={`w-4 h-4 ${alertItem.iconColor}`} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-white">
-                    {alert.title}
+                    {alertItem.title}
                   </h4>
-                  <span className="text-xs text-gray-500">{alert.time}</span>
+                  <span className="text-xs text-gray-500">
+                    {alertItem.time}
+                  </span>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">{alert.desc}</p>
+                <p className="text-xs text-gray-400 mt-1">{alertItem.desc}</p>
                 <div className="flex items-center justify-between mt-2">
                   <span
-                    className={`text-xs font-medium ${alert.severityColor}`}
+                    className={`text-xs font-medium ${alertItem.severityColor}`}
                   >
-                    Severity: {alert.severity}
+                    Severity: {alertItem.severity}
                   </span>
                   <button
-                    className={`text-xs font-medium ${alert.actionColor} hover:underline`}
+                    onClick={() =>
+                      toast.success(
+                        alertItem.action,
+                        `${alertItem.action}: ${alertItem.title}`,
+                      )
+                    }
+                    className={`text-xs font-medium ${alertItem.actionColor} hover:underline`}
                   >
-                    {alert.action}
+                    {alertItem.action}
                   </button>
                 </div>
               </div>

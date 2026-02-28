@@ -1,4 +1,5 @@
 import { Plus, Play, Download, Settings } from "lucide-react";
+import { toast } from "../../stores/toastStore";
 
 const actions = [
   {
@@ -7,6 +8,7 @@ const actions = [
     desc: "Launch new agent instance",
     color: "bg-blue-500/20",
     iconColor: "text-blue-400",
+    toastMsg: "Deploy Agent feature coming soon",
   },
   {
     icon: Play,
@@ -14,6 +16,7 @@ const actions = [
     desc: "Execute new job task",
     color: "bg-purple-500/20",
     iconColor: "text-purple-400",
+    toastMsg: "Create a new job from the Job Queue",
   },
   {
     icon: Download,
@@ -21,6 +24,7 @@ const actions = [
     desc: "Download metrics & logs",
     color: "bg-emerald-500/20",
     iconColor: "text-emerald-400",
+    toastMsg: "Export feature coming soon",
   },
   {
     icon: Settings,
@@ -28,6 +32,7 @@ const actions = [
     desc: "System settings",
     color: "bg-orange-500/20",
     iconColor: "text-orange-400",
+    toastMsg: "Settings page coming soon",
   },
 ];
 
@@ -39,6 +44,7 @@ export default function QuickActions() {
         {actions.map((action) => (
           <button
             key={action.label}
+            onClick={() => toast.info(action.label, action.toastMsg)}
             className="bg-[#0a0a0f] border border-[#23232f] rounded-lg p-4 text-left hover:border-[#3a3a4a] transition-colors group"
           >
             <div

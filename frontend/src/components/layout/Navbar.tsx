@@ -1,7 +1,8 @@
 import { Search, Bell, Settings, ChevronDown, LogOut } from "lucide-react";
 import { useAuthStore } from "../../stores/authStore";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useState } from "react";
+import { toast } from "../../stores/toastStore";
 
 export default function Navbar() {
   const { user, logout } = useAuthStore();
@@ -10,6 +11,7 @@ export default function Navbar() {
 
   const handleLogout = () => {
     logout();
+    toast.info("Signed Out", "You have been signed out successfully");
     navigate("/login");
   };
 
@@ -17,14 +19,16 @@ export default function Navbar() {
     <nav className="bg-[#111118] border-b border-[#23232f] sticky top-0 z-50">
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <div className="flex items-center gap-3">
+          <Link to="/dashboard" className="flex items-center gap-3 shrink-0">
             <img
               src="/axon-logo.png"
               alt="Axon Logo"
-              className="w-9 h-9 rounded-lg object-contain"
+              className="w-10 h-10 rounded-lg object-contain"
             />
-            <span className="text-xl font-bold text-white">Axon</span>
-          </div>
+            <span className="text-xl font-bold text-white tracking-tight">
+              Axon
+            </span>
+          </Link>
 
           <div className="hidden md:flex flex-1 max-w-xl mx-8">
             <div className="relative w-full">
@@ -40,6 +44,9 @@ export default function Navbar() {
           <div className="flex items-center gap-3">
             <button
               aria-label="Notifications"
+              onClick={() =>
+                toast.info("Notifications", "No new notifications")
+              }
               className="relative p-2 text-gray-400 hover:text-white hover:bg-[#1a1a24] rounded-lg transition-colors"
             >
               <Bell className="w-5 h-5" />
@@ -47,6 +54,9 @@ export default function Navbar() {
             </button>
             <button
               aria-label="Settings"
+              onClick={() =>
+                toast.info("Settings", "Settings page coming soon")
+              }
               className="p-2 text-gray-400 hover:text-white hover:bg-[#1a1a24] rounded-lg transition-colors"
             >
               <Settings className="w-5 h-5" />

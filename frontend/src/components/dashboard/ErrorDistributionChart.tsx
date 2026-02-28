@@ -1,4 +1,5 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { toast } from "../../stores/toastStore";
 
 const data = [
   { name: "Success", value: 98.2, color: "#22c55e" },
@@ -15,7 +16,12 @@ export default function ErrorDistributionChart() {
         <h2 className="text-xl font-bold text-white">
           Error Rate Distribution
         </h2>
-        <button className="text-sm text-blue-400 hover:text-blue-300">
+        <button
+          onClick={() =>
+            toast.info("Error Details", "Detailed error breakdown coming soon")
+          }
+          className="text-sm text-blue-400 hover:text-blue-300"
+        >
           View Details
         </button>
       </div>

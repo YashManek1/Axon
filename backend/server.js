@@ -9,6 +9,7 @@ import rateLimit from "express-rate-limit";
 import userRoutes from "./routes/userR.js";
 import jobRoutes from "./routes/jobR.js";
 import adminRoutes from "./routes/adminR.js";
+import agentRoutes from "./routes/agentR.js";
 
 import Agent from "./models/agent.js";
 
@@ -50,6 +51,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/user", userRoutes);
 app.use("/jobs", jobRoutes);
 app.use("/admin", adminRoutes);
+app.use("/agents", agentRoutes);
 
 io.use(async (socket, next) => {
   try {

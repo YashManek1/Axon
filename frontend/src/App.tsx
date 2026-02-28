@@ -6,6 +6,9 @@ import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import DashboardPage from "./pages/dashboard/DashboardPage";
+import ToastContainer from "./components/ui/ToastContainer";
+import ConfirmDialog from "./components/ui/ConfirmDialog";
+import "./toast-animation.css";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +43,8 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
+        <ToastContainer />
+        <ConfirmDialog />
       </BrowserRouter>
     </QueryClientProvider>
   );

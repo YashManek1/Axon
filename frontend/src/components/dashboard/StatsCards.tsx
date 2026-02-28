@@ -1,45 +1,53 @@
 import { Monitor, CheckCircle, Database, Gauge } from "lucide-react";
-
-const stats = [
-  {
-    label: "ACTIVE AGENTS",
-    value: "247",
-    change: "12.5%",
-    up: true,
-    icon: Monitor,
-    color: "text-emerald-400",
-    bg: "bg-emerald-500/20",
-  },
-  {
-    label: "JOBS SUCCESS RATE",
-    value: "98.2%",
-    change: "0.3%",
-    up: true,
-    icon: CheckCircle,
-    color: "text-blue-400",
-    bg: "bg-blue-500/20",
-  },
-  {
-    label: "DATA SUNK",
-    value: "2.4 GB",
-    change: "8.1%",
-    up: true,
-    icon: Database,
-    color: "text-purple-400",
-    bg: "bg-purple-500/20",
-  },
-  {
-    label: "AVG. LATENCY",
-    value: "45ms",
-    change: "5.2ms",
-    up: false,
-    icon: Gauge,
-    color: "text-orange-400",
-    bg: "bg-orange-500/20",
-  },
-];
+import { useAgents } from "../../hooks/useDashboardData";
 
 export default function StatsCards() {
+  const { data: agents } = useAgents();
+
+  const activeAgentCount = agents
+    ? agents.filter((a) => a.status === "online" || a.status === "busy").length
+    : 0;
+  const totalAgentCount = agents ? agents.length : 0;
+
+  const stats = [
+    {
+      label: "ACTIVE AGENTS",
+      value: `${activeAgentCount}`,
+      change: `${totalAgentCount} total`,
+      up: activeAgentCount > 0,
+      icon: Monitor,
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/20",
+    },
+    {
+      label: "JOBS SUCCESS RATE",
+      value: "98.2%",
+      change: "0.3%",
+      up: true,
+      icon: CheckCircle,
+      color: "text-blue-400",
+      bg: "bg-blue-500/20",
+    },
+    {
+      label: "DATA SUNK",
+      value: "2.4 GB",
+      change: "8.1%",
+      up: true,
+      icon: Database,
+      color: "text-purple-400",
+      bg: "bg-purple-500/20",
+    },
+    {
+      label: "AVG. LATENCY",
+      value: "45ms",
+      change: "5.2ms",
+      up: false,
+      icon: Gauge,
+      color: "text-orange-400",
+      bg: "bg-orange-500/20",
+    },
+  ];
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {stats.map((s) => (

@@ -18,6 +18,8 @@ import { useJobs } from "../../hooks/useDashboardData";
 import { jobsAPI } from "../../services/api";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Job } from "../../hooks/useDashboardData";
+import { toast } from "../../stores/toastStore";
+import { useConfirmStore } from "../../stores/confirmStore";
 
 const typeColors: Record<string, string> = {
   http: "bg-blue-500/20 text-blue-400",
@@ -52,20 +54,47 @@ function JobMoreMenu({
   if (!open) return null;
 
   const menuItems = [
-    { label: "View Job Details", icon: Eye, color: "text-gray-300" },
-    { label: "View Execution History", icon: FileText, color: "text-gray-300" },
+    {
+      label: "View Job Details",
+      icon: Eye,
+      color: "text-gray-300",
+      action: () => toast.info("View Job Details", `Details for ${job.name}`),
+    },
+    {
+      label: "View Execution History",
+      icon: FileText,
+      color: "text-gray-300",
+      action: () => toast.info("Execution History", `History for ${job.name}`),
+    },
     {
       label: "Copy Job ID",
       icon: Copy,
       color: "text-gray-300",
       action: () => {
         navigator.clipboard.writeText(job._id);
-        alert("Job ID copied!");
+        toast.success("Copied!", "Job ID copied to clipboard");
       },
     },
-    { label: "Edit Schedule", icon: Clock, color: "text-gray-300" },
-    { label: "Configure Webhook", icon: Settings, color: "text-gray-300" },
-    { label: "Duplicate Job", icon: Copy, color: "text-blue-400" },
+    {
+      label: "Edit Schedule",
+      icon: Clock,
+      color: "text-gray-300",
+      action: () =>
+        toast.info("Edit Schedule", `Editing schedule for ${job.name}`),
+    },
+    {
+      label: "Configure Webhook",
+      icon: Settings,
+      color: "text-gray-300",
+      action: () =>
+        toast.info("Configure Webhook", `Configuring webhook for ${job.name}`),
+    },
+    {
+      label: "Duplicate Job",
+      icon: Copy,
+      color: "text-blue-400",
+      action: () => toast.success("Duplicate Job", `Duplicating ${job.name}`),
+    },
   ];
 
   return (
@@ -78,7 +107,7 @@ function JobMoreMenu({
           key={opt.label}
           onClick={() => {
             onClose();
-            opt.action ? opt.action() : alert(`${opt.label} for ${job.name}`);
+            opt.action();
           }}
           className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-[#23232f] transition-colors ${opt.color}`}
         >
@@ -112,22 +141,46 @@ export default function ActiveJobQueue() {
   const { data: jobs, isLoading } = useJobs();
   const queryClient = useQueryClient();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const { open: openConfirm } = useConfirmStore();
 
   const handleToggle = async (id: string) => {
-    await jobsAPI.toggle(id);
-    queryClient.invalidateQueries({ queryKey: ["jobs"] });
-  };
-
-  const handleDelete = async (id: string) => {
-    if (confirm("Delete this job?")) {
-      await jobsAPI.delete(id);
+    try {
+      await jobsAPI.toggle(id);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      toast.success("Status Toggled", "Job status updated successfully");
+    } catch {
+      toast.error("Toggle Failed", "Could not toggle job status");
     }
   };
 
+  const handleDelete = (id: string) => {
+    openConfirm({
+      title: "Delete Job",
+      message:
+        "Are you sure you want to delete this job? This action cannot be undone.",
+      confirmLabel: "Delete",
+      onConfirm: async () => {
+        try {
+          await jobsAPI.delete(id);
+          queryClient.invalidateQueries({ queryKey: ["jobs"] });
+          toast.success("Job Deleted", "The job has been removed successfully");
+        } catch {
+          toast.error("Delete Failed", "Could not delete the job");
+        }
+      },
+    });
+  };
+
   const handleRunNow = async (id: string) => {
-    await jobsAPI.runNow(id);
-    alert("Job triggered!");
+    try {
+      await jobsAPI.runNow(id);
+      toast.success(
+        "Job Triggered",
+        "The job has been queued for immediate execution",
+      );
+    } catch {
+      toast.error("Trigger Failed", "Could not trigger the job");
+    }
   };
 
   if (isLoading) {
@@ -247,12 +300,16 @@ export default function ActiveJobQueue() {
                       </button>
                       <button
                         aria-label="Retry"
+                        onClick={() => toast.info("Retry", "Retrying job...")}
                         className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-[#23232f] rounded-md transition-colors"
                       >
                         <RotateCcw className="w-4 h-4" />
                       </button>
                       <button
                         aria-label="View"
+                        onClick={() =>
+                          toast.info("View Job", `Viewing ${job.name}`)
+                        }
                         className="p-1.5 text-gray-400 hover:text-white hover:bg-[#23232f] rounded-md transition-colors"
                       >
                         <Eye className="w-4 h-4" />
