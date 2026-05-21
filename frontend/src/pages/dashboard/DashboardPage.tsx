@@ -9,10 +9,12 @@ import AgentHealthMonitoring from "../../components/dashboard/AgentHealthMonitor
 import SystemLogs from "../../components/dashboard/SystemLogs";
 import ActiveAlerts from "../../components/dashboard/ActiveAlerts";
 import QuickActions from "../../components/dashboard/QuickActions";
+import ErrorBoundary from "../../components/ErrorBoundary";
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-6">
+    <ErrorBoundary>
+      <div className="space-y-6">
       {/* Stats */}
       <StatsCards />
 
@@ -53,6 +55,7 @@ export default function DashboardPage() {
         <ActiveAlerts />
         <QuickActions />
       </div>
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }

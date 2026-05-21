@@ -1,12 +1,16 @@
 [package]
 name = "agent"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 dotenv = "0.15.0"
-rust_socketio = "0.6.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sys-info = "0.9.1"
 tokio = { version = "1.49.0", features = ["full"] }
+tokio-tungstenite = { version = "0.28.0", features = ["native-tls"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+uuid = { version = "1.19.0", features = ["v4"] }
+futures-util = "0.3.32"

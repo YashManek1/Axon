@@ -20,6 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Job } from "../../hooks/useDashboardData";
 import { toast } from "../../stores/toastStore";
 import { useConfirmStore } from "../../stores/confirmStore";
+import { useNavigate } from "react-router-dom";
 
 const typeColors: Record<string, string> = {
   http: "bg-blue-500/20 text-blue-400",
@@ -140,8 +141,12 @@ function getJobDuration(job: Job): string {
 export default function ActiveJobQueue() {
   const { data: jobs, isLoading } = useJobs();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [runningJobId, setRunningJobId] = useState<string | null>(null);
   const { open: openConfirm } = useConfirmStore();
+  const pageSize = 10;
 
   const handleToggle = async (id: string) => {
     try {
@@ -164,8 +169,12 @@ export default function ActiveJobQueue() {
           await jobsAPI.delete(id);
           queryClient.invalidateQueries({ queryKey: ["jobs"] });
           toast.success("Job Deleted", "The job has been removed successfully");
-        } catch {
-          toast.error("Delete Failed", "Could not delete the job");
+        } catch (err: unknown) {
+          const axiosErr = err as { response?: { data?: { message?: string } } };
+          toast.error(
+            "Delete Failed",
+            axiosErr.response?.data?.message || "Could not delete the job",
+          );
         }
       },
     });
@@ -173,13 +182,20 @@ export default function ActiveJobQueue() {
 
   const handleRunNow = async (id: string) => {
     try {
+      setRunningJobId(id);
       await jobsAPI.runNow(id);
       toast.success(
         "Job Triggered",
         "The job has been queued for immediate execution",
       );
-    } catch {
-      toast.error("Trigger Failed", "Could not trigger the job");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      toast.error(
+        "Trigger Failed",
+        axiosErr.response?.data?.message || "Could not trigger the job",
+      );
+    } finally {
+      setRunningJobId(null);
     }
   };
 
@@ -194,10 +210,16 @@ export default function ActiveJobQueue() {
   if (!jobs || jobs.length === 0) {
     return (
       <div className="bg-[#111118] border border-[#23232f] rounded-xl p-10 text-center">
-        <p className="text-gray-400">No jobs found. Create your first job!</p>
+        <p className="text-gray-400">
+          No jobs created yet. Create your first job using the Quick Actions panel.
+        </p>
       </div>
     );
   }
+
+  const totalPages = Math.ceil(jobs.length / pageSize);
+  const safePage = Math.min(page, Math.max(totalPages - 1, 0));
+  const visibleJobs = jobs.slice(safePage * pageSize, safePage * pageSize + pageSize);
 
   return (
     <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5">
@@ -228,7 +250,7 @@ export default function ActiveJobQueue() {
             </tr>
           </thead>
           <tbody>
-            {jobs.map((job) => {
+            {visibleJobs.map((job) => {
               const progress = getJobProgress(job);
               const duration = getJobDuration(job);
               const progressColor = job.enabled
@@ -287,9 +309,14 @@ export default function ActiveJobQueue() {
                       <button
                         aria-label="Run now"
                         onClick={() => handleRunNow(job._id)}
+                        disabled={runningJobId === job._id}
                         className="p-1.5 text-gray-400 hover:text-emerald-400 hover:bg-[#23232f] rounded-md transition-colors"
                       >
-                        <Play className="w-4 h-4" />
+                        {runningJobId === job._id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
                       </button>
                       <button
                         aria-label="Toggle"
@@ -307,9 +334,7 @@ export default function ActiveJobQueue() {
                       </button>
                       <button
                         aria-label="View"
-                        onClick={() =>
-                          toast.info("View Job", `Viewing ${job.name}`)
-                        }
+                        onClick={() => navigate(`/dashboard/jobs/${job._id}`)}
                         className="p-1.5 text-gray-400 hover:text-white hover:bg-[#23232f] rounded-md transition-colors"
                       >
                         <Eye className="w-4 h-4" />
@@ -345,6 +370,29 @@ export default function ActiveJobQueue() {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-4">
+          <button
+            onClick={() => setPage((current) => Math.max(current - 1, 0))}
+            disabled={safePage === 0}
+            className="px-3 py-1.5 text-sm text-gray-300 bg-[#1a1a24] border border-[#2d2d3a] rounded-lg disabled:opacity-50"
+          >
+            Previous
+          </button>
+          <span className="text-sm text-gray-400">
+            Page {safePage + 1} of {totalPages}
+          </span>
+          <button
+            onClick={() =>
+              setPage((current) => Math.min(current + 1, totalPages - 1))
+            }
+            disabled={safePage >= totalPages - 1}
+            className="px-3 py-1.5 text-sm text-gray-300 bg-[#1a1a24] border border-[#2d2d3a] rounded-lg disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

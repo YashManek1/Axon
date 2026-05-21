@@ -11,7 +11,7 @@ import {
 
 const router = express.Router();
 
-router.get("/health", authAdmin, HealthCheck);
+router.get("/health", HealthCheck);
 router.get("/job-stats", authAdmin, jobStats);
 router.get("/user-stats", authAdmin, userStats);
 router.get("/all-jobs", authAdmin, getAllJobs);

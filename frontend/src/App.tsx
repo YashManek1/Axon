@@ -1,11 +1,19 @@
-﻿import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+} from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useAuthStore } from "./stores/authStore";
+import { authAPI, setAuthNavigationHandler } from "./services/api";
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import DashboardPage from "./pages/dashboard/DashboardPage";
+import JobDetailPage from "./pages/dashboard/JobDetailPage";
 import HomePage from "./pages/HomePage";
 import ToastContainer from "./components/ui/ToastContainer";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
@@ -19,15 +27,37 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AuthNavigationBridge() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    setAuthNavigationHandler(() => navigate("/login"));
+  }, [navigate]);
+
+  return null;
+}
+
 function App() {
-  const { initialize } = useAuthStore();
+  const { initialize, login, logout } = useAuthStore();
+
   useEffect(() => {
     initialize();
-  }, [initialize]);
+    authAPI
+      .refresh()
+      .then((response) => {
+        if (response.data?.user) {
+          login(response.data.user);
+        }
+      })
+      .catch(() => {
+        logout();
+      });
+  }, [initialize, login, logout]);
 
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <AuthNavigationBridge />
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -41,6 +71,7 @@ function App() {
             }
           >
             <Route index element={<DashboardPage />} />
+            <Route path="jobs/:jobId" element={<JobDetailPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

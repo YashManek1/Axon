@@ -1,82 +1,193 @@
 import { Worker } from "bullmq";
 import { redisConnection } from "../config/queue.js";
 import jobHistoryModel from "../models/jobHistory.js";
-import jobModel from "../models/job.js";
 import Agent from "../models/agent.js";
-import { io } from "../server.js";
 import axios from "axios";
 import mongoose from "mongoose";
 import { decrypt } from "../utils/crypto.js";
+import { createChildLogger } from "../config/logger.js";
+import { releaseJobLock } from "../services/distributedLock.js";
+import {
+  acquireExecutionSlot,
+  checkDependenciesMet,
+  setJobState,
+} from "../services/dagStateManager.js";
+import {
+  createAuditRecord,
+  updateAuditRecord,
+} from "../services/auditService.js";
+import {
+  configureJobExecutionRouter,
+  dispatchCommandToAgent,
+} from "../services/jobExecutionRouter.js";
+import { publishLogChunk } from "../services/logStreamBroker.js";
+import {
+  FLUSH_AGENT_TELEMETRY_JOB_NAME,
+  flushAgentTelemetry,
+} from "./telemetryFlushWorker.js";
 
-async function checkDependenciesMet(jobId) {
-  const job = await jobModel.findById(jobId).select("dependsOn").lean();
+const logger = createChildLogger({ module: "job-worker" });
 
-  if (!job || !job.dependsOn || job.dependsOn.length === 0) {
-    return { met: true, failedDeps: [] };
+export function configureJobWorker(io) {
+  configureJobExecutionRouter(io);
+}
+
+function getAuditCommand(payload) {
+  if (payload?.command) {
+    return payload.command;
   }
 
-  const failedDeps = [];
+  if (payload?.url) {
+    return `${payload.method} ${payload.url}`;
+  }
 
-  for (const depId of job.dependsOn) {
-    const depIdStr = depId.toString();
+  return "unknown";
+}
 
-    const latestHistory = await jobHistoryModel
-      .findOne({ jobId: depIdStr })
-      .sort({ executedAt: -1 })
-      .select("status executedAt")
-      .lean();
-
-    if (!latestHistory) {
-      failedDeps.push({
-        jobId: depIdStr,
-        reason: "never_executed",
-      });
-      continue;
-    }
-
-    if (latestHistory.status !== "success") {
-      failedDeps.push({
-        jobId: depIdStr,
-        reason: `last_status_${latestHistory.status}`,
-        lastRun: latestHistory.executedAt,
-      });
-    }
+function getOutputSummaries(output, error) {
+  if (output?.stdout !== undefined || output?.stderr !== undefined) {
+    return {
+      stdoutSummary: output?.stdout || "",
+      stderrSummary: error || output?.stderr || "",
+    };
   }
 
   return {
-    met: failedDeps.length === 0,
-    failedDeps,
+    stdoutSummary:
+      output === undefined || output === null ? "" : JSON.stringify(output),
+    stderrSummary: error || "",
   };
 }
 
-const jobProcessor = async (job) => {
-  console.log(`Worker picked up job: ${job.id} from queue: ${job.queueName}`);
+async function safeUpdateAuditRecord(auditId, updates, jobLogger) {
+  if (!auditId) {
+    return;
+  }
 
-  const { jobId, payload, orgId, webhookUrl, sink, dependsOn } = job.data;
+  try {
+    await updateAuditRecord(auditId, updates);
+  } catch (err) {
+    jobLogger.error({ err, auditId }, "Failed to update audit record");
+  }
+}
+
+async function publishCommandOutput(jobId, orgId, agentResponse) {
+  if (Array.isArray(agentResponse?.chunks)) {
+    await Promise.all(
+      agentResponse.chunks.map((chunk) => publishLogChunk(jobId, orgId, chunk)),
+    );
+  }
+
+  const publishLines = async (stream, text) => {
+    if (!text) {
+      return;
+    }
+
+    const timestampMs = Date.now();
+    const lines = String(text)
+      .split(/\r?\n/)
+      .filter((line) => line.length > 0);
+
+    await Promise.all(
+      lines.map((line, index) =>
+        publishLogChunk(jobId, orgId, {
+          stream,
+          line,
+          timestampMs: timestampMs + index,
+        }),
+      ),
+    );
+  };
+
+  await publishLines("stdout", agentResponse?.stdout);
+  await publishLines("stderr", agentResponse?.stderr);
+}
+
+export const jobProcessor = async (job) => {
+  if (job.name === FLUSH_AGENT_TELEMETRY_JOB_NAME) {
+    return flushAgentTelemetry();
+  }
+
+  const {
+    jobId,
+    payload,
+    orgId,
+    webhookUrl,
+    sink,
+    dependsOn,
+    triggeredBy,
+    triggerType,
+  } = job.data;
+  const jobLogger = logger.child({
+    bullJobId: job.id,
+    queueName: job.queueName,
+    jobId,
+    orgId,
+  });
+
+  jobLogger.info({ payloadType: payload.url ? "http" : "shell" }, "Worker picked up job");
 
   let status = "success";
   let output = null;
   let error = null;
   const startTime = Date.now();
+  const workerId = `${job.queueName}:${job.id}`;
+  const auditRecord = await createAuditRecord({
+    jobId,
+    orgId,
+    triggeredBy,
+    triggerType: triggerType || "SCHEDULED",
+    command: getAuditCommand(payload),
+    status: "PENDING",
+    metadata: {
+      bullJobId: job.id,
+      queueName: job.queueName,
+    },
+  });
+  const auditId = auditRecord?._id;
+  if (job.data?.__testHooks?.afterAuditCreated) {
+    await job.data.__testHooks.afterAuditCreated(auditRecord);
+  }
+  const executionSlot = await acquireExecutionSlot(jobId, workerId);
+
+  if (!executionSlot.acquired) {
+    jobLogger.warn(
+      { jobId, existingWorker: executionSlot.existingWorker },
+      "Job lock already held; skipping duplicate dispatch",
+    );
+    await safeUpdateAuditRecord(
+      auditId,
+      {
+        status: "CANCELLED",
+        completedAt: new Date(),
+        durationMs: Date.now() - startTime,
+        stderrSummary: "Job lock already held; skipped duplicate dispatch",
+      },
+      jobLogger,
+    );
+    return { status: "skipped", jobId, reason: "lock-held" };
+  }
 
   try {
+    await setJobState(jobId, "RUNNING");
+    await safeUpdateAuditRecord(auditId, { status: "DISPATCHED" }, jobLogger);
+
+    try {
     if (dependsOn && dependsOn.length > 0) {
-      console.log(
-        `Job ${jobId} has ${dependsOn.length} dependencies. Checking...`,
-      );
-      const depCheck = await checkDependenciesMet(jobId);
+      jobLogger.info({ dependencyCount: dependsOn.length }, "Checking job dependencies");
+      const depCheck = await checkDependenciesMet(jobId, dependsOn);
 
       if (!depCheck.met) {
-        const failedNames = depCheck.failedDeps
-          .map((d) => `${d.jobId} (${d.reason})`)
+        const failedNames = depCheck.blockedBy
+          .map((dependency) => `${dependency.jobId} (${dependency.currentState})`)
           .join(", ");
         throw new Error(`Dependencies not met. Blocked by: [${failedNames}]`);
       }
-      console.log(`All dependencies met for job ${jobId}. Proceeding...`);
+      jobLogger.info({ dependencyCount: dependsOn.length }, "All dependencies met");
     }
 
     if (payload.url) {
-      console.log(`Running HTTP Job: ${payload.method} ${payload.url}`);
+      jobLogger.info({ method: payload.method, url: payload.url }, "Running HTTP job");
       const response = await axios({
         method: payload.method,
         url: payload.url,
@@ -88,44 +199,30 @@ const jobProcessor = async (job) => {
         data: response.data,
       };
     } else if (payload.command) {
-      console.log(`Shell Job Detected. Looking for Agents for Org: ${orgId}`);
+      jobLogger.info({ command: payload.command }, "Looking for online agent for shell job");
       const agent = await Agent.findOne({ orgId: orgId, status: "online" });
       if (!agent || !agent.socketId) {
         throw new Error(
           `No Online Agents found for Org ${orgId}. Is your Rust Agent running?`,
         );
       }
-      console.log(
-        `Dispatching to Agent: ${agent.name} (Socket: ${agent.socketId})`,
+      jobLogger.info(
+        { agentId: agent._id, agentName: agent.name, socketId: agent.socketId },
+        "Dispatching shell job to agent",
       );
-      const socket = io.sockets.sockets.get(agent.socketId);
-      if (!socket)
-        throw new Error("Agent socket not found in active connections.");
-
-      const agentResponse = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          socket.removeAllListeners("command_result");
-          reject(new Error("Agent Execution Timed Out (10s)"));
-        }, 10000);
-        const listener = (data) => {
-          if (data.jobId === jobId) {
-            clearTimeout(timeout);
-            socket.off("command_result", listener);
-            resolve(data);
-          }
-        };
-        socket.on("command_result", listener);
-        socket.emit("execute_command", {
-          jobId: jobId,
-          command: payload.command,
-        });
-      });
+      const agentResponse = await dispatchCommandToAgent(
+        jobId,
+        agent.socketId,
+        payload.command,
+        10000,
+      );
       if (agentResponse.error) throw new Error(agentResponse.error);
+      await publishCommandOutput(jobId, orgId, agentResponse);
       output = agentResponse;
     }
 
     if (sink && sink.type === "mongo" && sink.uri && sink.collection) {
-      console.log("Sinking output to MongoDB Sink...");
+      jobLogger.info({ sinkType: sink.type, collection: sink.collection }, "Sinking output");
       try {
         const decryptedUri = decrypt(sink.uri);
         const conn = await mongoose.createConnection(decryptedUri).asPromise();
@@ -137,15 +234,15 @@ const jobProcessor = async (job) => {
           data: dataToSink,
         });
         await conn.close();
-        console.log("Data successfully sunk.");
+        jobLogger.info({ sinkType: sink.type, collection: sink.collection }, "Output sunk successfully");
       } catch (sinkErr) {
-        console.error("Sink Failed:", sinkErr.message);
+        jobLogger.error({ err: sinkErr, sinkType: sink.type, collection: sink.collection }, "Sink failed");
       }
     }
   } catch (err) {
     status = "failure";
     error = err.message;
-    console.error(`Job Failed: ${err.message}`);
+    jobLogger.error({ err }, "Job failed");
     if (err.response) {
       output = {
         status: err.response.status,
@@ -154,64 +251,91 @@ const jobProcessor = async (job) => {
     }
   }
 
-  const duration = Date.now() - startTime;
-  try {
-    await jobHistoryModel.create({
-      jobId,
-      orgId,
-      status,
-      duration,
-      executedAt: new Date(),
-      exitCode: output?.exitCode || (status === "success" ? 0 : 1),
-      output: {
-        stdout:
-          typeof output === "object"
-            ? JSON.stringify(output)
-            : output?.stdout || "",
-        stderr: error || output?.stderr || "",
+    const duration = Date.now() - startTime;
+    const auditStatus =
+      error === "EXECUTION_TIMEOUT" ? "TIMEOUT" : status === "success" ? "COMPLETED" : "FAILED";
+    await setJobState(jobId, auditStatus);
+    const { stdoutSummary, stderrSummary } = getOutputSummaries(output, error);
+
+    await safeUpdateAuditRecord(
+      auditId,
+      {
+        status: auditStatus,
+        completedAt: new Date(),
+        durationMs: duration,
+        exitCode: output?.exitCode || (status === "success" ? 0 : 1),
+        stdoutSummary,
+        stderrSummary,
       },
-    });
-    console.log(`History Saved (${status}, ${duration}ms).`);
-  } catch (e) {
-    console.error("Failed to save history:", e);
-  }
+      jobLogger,
+    );
 
-  if (webhookUrl) {
     try {
-      console.log("Firing Webhook...");
-      await axios.post(webhookUrl, {
+      await jobHistoryModel.create({
         jobId,
+        orgId,
         status,
-        output,
         duration,
-        timestamp: new Date(),
+        executedAt: new Date(),
+        exitCode: output?.exitCode || (status === "success" ? 0 : 1),
+        output: {
+          stdout:
+            typeof output === "object"
+              ? JSON.stringify(output)
+              : output?.stdout || "",
+          stderr: error || output?.stderr || "",
+        },
       });
-    } catch (webhookErr) {
-      console.warn("Webhook failed:", webhookErr.message);
+      jobLogger.info({ status, durationMs: duration }, "Job history saved");
+    } catch (e) {
+      jobLogger.error({ err: e, status, durationMs: duration }, "Failed to save job history");
     }
-  }
 
-  return { status, jobId, duration };
+    if (webhookUrl) {
+      try {
+        jobLogger.info({ webhookUrl }, "Firing webhook");
+        await axios.post(webhookUrl, {
+          jobId,
+          status,
+          output,
+          duration,
+          timestamp: new Date(),
+        });
+      } catch (webhookErr) {
+        jobLogger.warn({ err: webhookErr, webhookUrl }, "Webhook failed");
+      }
+    }
+
+    return { status, jobId, duration };
+  } finally {
+    await releaseJobLock(jobId);
+  }
 };
 
-export const scheduledWorker = new Worker("scheduled-jobs", jobProcessor, {
-  connection: redisConnection,
-  concurrency: 5,
-});
+const shouldStartWorkers = process.env.NODE_ENV !== "test";
 
-export const immediateWorker = new Worker("immediate-jobs", jobProcessor, {
-  connection: redisConnection,
-  concurrency: 5,
-});
+export const scheduledWorker = shouldStartWorkers
+  ? new Worker("scheduled-jobs", jobProcessor, {
+      connection: redisConnection,
+      concurrency: 5,
+    })
+  : null;
 
-scheduledWorker.on("failed", (job, err) => {
-  console.error(`Scheduled Job ${job.id} failed: ${err.message}`);
-});
+export const immediateWorker = shouldStartWorkers
+  ? new Worker("immediate-jobs", jobProcessor, {
+      connection: redisConnection,
+      concurrency: 5,
+    })
+  : null;
 
-immediateWorker.on("failed", (job, err) => {
-  console.error(`Immediate Job ${job.id} failed: ${err.message}`);
-});
+if (scheduledWorker && immediateWorker) {
+  scheduledWorker.on("failed", (job, err) => {
+    logger.error({ err, bullJobId: job?.id, queueName: "scheduled-jobs" }, "Scheduled job failed");
+  });
 
-console.log(
-  "Axon Workers Started: Listening on 'scheduled-jobs' and 'immediate-jobs'",
-);
+  immediateWorker.on("failed", (job, err) => {
+    logger.error({ err, bullJobId: job?.id, queueName: "immediate-jobs" }, "Immediate job failed");
+  });
+
+  logger.info({ queues: ["scheduled-jobs", "immediate-jobs"] }, "Axon workers started");
+}

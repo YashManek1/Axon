@@ -3,8 +3,11 @@ import jobModel from "../models/job.js";
 import { scheduledJobsQueue, immediateJobsQueue } from "../config/queue.js";
 import mongoose from "mongoose";
 import { encryptSink, decryptSink } from "../utils/crypto.js";
+import { createChildLogger } from "../config/logger.js";
+import { setJobState } from "../services/dagStateManager.js";
 
 const JOB_NAME = "dispatch-job";
+const logger = createChildLogger({ module: "job-controller" });
 
 // ─── Helper: Prepare sink for queue (decrypt so worker gets plaintext) ───
 function prepareSinkForQueue(sink) {
@@ -123,6 +126,12 @@ export const createJob = async (req, res) => {
           jobId: newJob._id,
           payload: newJob.payload,
           orgId: user.orgId,
+          triggeredBy: {
+            userId,
+            ipAddress: req.ip || "unknown",
+            userAgent: req.get("user-agent") || "unknown",
+          },
+          triggerType: "SCHEDULED",
           webhookUrl: newJob.webhookUrl,
           // ─── Pass DECRYPTED sink to queue so worker can use it ───
           sink: prepareSinkForQueue(newJob.sink),
@@ -133,13 +142,14 @@ export const createJob = async (req, res) => {
           jobId: String(newJob._id),
         },
       );
+      await setJobState(newJob._id, "QUEUED");
     }
 
     return res
       .status(201)
       .json({ message: "Job created successfully", job: newJob });
   } catch (error) {
-    console.error("Error creating job:", error);
+    logger.error({ err: error, userId: req.user?.id, orgId: req.user?.orgId }, "Error creating job");
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -159,7 +169,7 @@ export const getJobs = async (req, res) => {
 
     return res.status(200).json(decryptedJobs);
   } catch (error) {
-    console.error("Error fetching jobs:", error);
+    logger.error({ err: error, orgId: req.user?.orgId }, "Error fetching jobs");
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -181,7 +191,10 @@ export const getJobById = async (req, res) => {
 
     return res.status(200).json(jobObj);
   } catch (error) {
-    console.error("Error fetching job by ID:", error);
+    logger.error(
+      { err: error, jobId: req.params?.jobId, orgId: req.user?.orgId },
+      "Error fetching job by ID",
+    );
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -301,7 +314,9 @@ export const updateJob = async (req, res) => {
         { pattern: oldSchedule },
         jobIdStr,
       );
-    } catch (err) {}
+    } catch (err) {
+      logger.warn({ err, jobId: jobIdStr, schedule: oldSchedule }, "Failed to remove old repeatable job");
+    }
 
     if (job.enabled) {
       await scheduledJobsQueue.add(
@@ -310,6 +325,12 @@ export const updateJob = async (req, res) => {
           jobId: job._id,
           payload: job.payload,
           orgId: req.user.orgId,
+          triggeredBy: {
+            userId: req.user.id,
+            ipAddress: req.ip || "unknown",
+            userAgent: req.get("user-agent") || "unknown",
+          },
+          triggerType: "SCHEDULED",
           webhookUrl: job.webhookUrl,
           // ─── Pass DECRYPTED sink to queue so worker can use it ───
           sink: prepareSinkForQueue(job.sink),
@@ -324,7 +345,10 @@ export const updateJob = async (req, res) => {
 
     return res.status(200).json({ message: "Job updated successfully", job });
   } catch (error) {
-    console.error("Error updating job:", error);
+    logger.error(
+      { err: error, jobId: req.params?.jobId, userId: req.user?.id, orgId: req.user?.orgId },
+      "Error updating job",
+    );
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -351,12 +375,17 @@ export const deleteJob = async (req, res) => {
         { pattern: job.schedule },
         jobIdStr,
       );
-    } catch (err) {}
+    } catch (err) {
+      logger.warn({ err, jobId: jobIdStr, schedule: job.schedule }, "Failed to remove repeatable job");
+    }
 
     await jobModel.deleteOne({ _id: jobId, userId, orgId: req.user.orgId });
     return res.status(200).json({ message: "Job deleted successfully" });
   } catch (error) {
-    console.error("Error deleting job:", error);
+    logger.error(
+      { err: error, jobId: req.params?.jobId, userId: req.user?.id, orgId: req.user?.orgId },
+      "Error deleting job",
+    );
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -386,6 +415,12 @@ export const toggleJobStatus = async (req, res) => {
           jobId: job._id,
           payload: job.payload,
           orgId: req.user.orgId,
+          triggeredBy: {
+            userId: req.user.id,
+            ipAddress: req.ip || "unknown",
+            userAgent: req.get("user-agent") || "unknown",
+          },
+          triggerType: "SCHEDULED",
           webhookUrl: job.webhookUrl,
           // ─── Pass DECRYPTED sink to queue ───
           sink: prepareSinkForQueue(job.sink),
@@ -403,13 +438,18 @@ export const toggleJobStatus = async (req, res) => {
           { pattern: job.schedule },
           jobIdStr,
         );
-      } catch (err) {}
+      } catch (err) {
+        logger.warn({ err, jobId: jobIdStr, schedule: job.schedule }, "Failed to remove repeatable job");
+      }
     }
     return res
       .status(200)
       .json({ message: "Job status toggled successfully", job });
   } catch (error) {
-    console.error("Error toggling job status:", error);
+    logger.error(
+      { err: error, jobId: req.params?.jobId, userId: req.user?.id, orgId: req.user?.orgId },
+      "Error toggling job status",
+    );
     return res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -432,6 +472,12 @@ export const runJobNow = async (req, res) => {
         jobId: job._id,
         payload: job.payload,
         orgId: req.user.orgId,
+        triggeredBy: {
+          userId: req.user.id,
+          ipAddress: req.ip || "unknown",
+          userAgent: req.get("user-agent") || "unknown",
+        },
+        triggerType: "MANUAL_API",
         webhookUrl: job.webhookUrl,
         // ─── Pass DECRYPTED sink to queue ───
         sink: prepareSinkForQueue(job.sink),
@@ -442,10 +488,14 @@ export const runJobNow = async (req, res) => {
         removeOnFail: true,
       },
     );
+    await setJobState(job._id, "QUEUED");
 
     return res.status(200).json({ message: "Job triggered manually" });
   } catch (error) {
-    console.error("Manual trigger error:", error);
+    logger.error(
+      { err: error, jobId: req.params?.jobId, orgId: req.user?.orgId },
+      "Manual job trigger failed",
+    );
     return res.status(500).json({ message: "Internal server error" });
   }
 };

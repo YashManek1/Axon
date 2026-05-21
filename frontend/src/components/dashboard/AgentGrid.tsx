@@ -16,29 +16,6 @@ import { toast } from "../../stores/toastStore";
 import { useAgents } from "../../hooks/useDashboardData";
 import { Loader2 } from "lucide-react";
 
-const cpuData = [
-  { v: 35 },
-  { v: 42 },
-  { v: 38 },
-  { v: 44 },
-  { v: 40 },
-  { v: 42 },
-  { v: 45 },
-  { v: 43 },
-  { v: 42 },
-];
-const ramData = [
-  { v: 62 },
-  { v: 65 },
-  { v: 64 },
-  { v: 67 },
-  { v: 68 },
-  { v: 66 },
-  { v: 69 },
-  { v: 70 },
-  { v: 68 },
-];
-
 const menuOptions = [
   {
     label: "View Details",
@@ -152,7 +129,7 @@ export default function AgentGrid() {
         </div>
       ) : !agents || agents.length === 0 ? (
         <div className="text-center py-20 text-gray-500">
-          No agents found. Deploy an agent to get started.
+          No agents registered. Download and install the Axon agent to connect your first machine.
         </div>
       ) : (
         <div className="space-y-4">
@@ -162,24 +139,44 @@ export default function AgentGrid() {
             const ramUsed = agent.systemInfo?.ramUsed ?? 0;
             const ramPercent =
               ramTotal > 0 ? Math.round((ramUsed / ramTotal) * 100) : 0;
+            const lastSeenMs = agent.lastSeen
+              ? new Date(agent.lastSeen).getTime()
+              : 0;
+            const isStale =
+              agent.status === "online" &&
+              (!lastSeenMs || Date.now() - lastSeenMs > 60000);
             const displayStatus =
-              agent.status === "online"
+              isStale
+                ? "Stale"
+                : agent.status === "online"
                 ? "Online"
                 : agent.status === "busy"
                   ? "Busy"
                   : "Offline";
             const statusColor =
-              agent.status === "online"
+              isStale
+                ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/30"
+                : agent.status === "online"
                 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
                 : agent.status === "busy"
                   ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/30"
                   : "text-gray-400 bg-gray-500/10 border-gray-500/30";
             const dotColor =
-              agent.status === "online"
+              isStale
+                ? "bg-yellow-400"
+                : agent.status === "online"
                 ? "bg-emerald-400"
                 : agent.status === "busy"
                   ? "bg-yellow-400"
                   : "bg-gray-400";
+            const cpuChartData = [
+              { v: 0 },
+              { v: Math.max(0, Number(cpuLoad.toFixed(1))) },
+            ];
+            const ramChartData = [
+              { v: 0 },
+              { v: Math.max(0, ramPercent) },
+            ];
 
             return (
               <div
@@ -237,7 +234,7 @@ export default function AgentGrid() {
                     </div>
                     <div className="h-16 bg-[#0a0a0f] rounded-lg overflow-hidden">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={cpuData}>
+                        <AreaChart data={cpuChartData}>
                           <Area
                             type="monotone"
                             dataKey="v"
@@ -257,7 +254,7 @@ export default function AgentGrid() {
                     </div>
                     <div className="h-16 bg-[#0a0a0f] rounded-lg overflow-hidden">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={ramData}>
+                        <AreaChart data={ramChartData}>
                           <Area
                             type="monotone"
                             dataKey="v"
@@ -275,19 +272,19 @@ export default function AgentGrid() {
                 <div className="grid grid-cols-4 gap-4 pt-4 border-t border-[#23232f]">
                   <div>
                     <p className="text-xs text-gray-400">Uptime</p>
-                    <p className="text-sm font-semibold text-white">-</p>
+                    <p className="text-sm font-semibold text-white" title="Coming in v2">-</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Jobs Processed</p>
-                    <p className="text-sm font-semibold text-white">-</p>
+                    <p className="text-sm font-semibold text-white" title="Coming in v2">-</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Errors</p>
-                    <p className="text-sm font-semibold text-red-400">-</p>
+                    <p className="text-sm font-semibold text-red-400" title="Coming in v2">-</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Network I/O</p>
-                    <p className="text-sm font-semibold text-white">-</p>
+                    <p className="text-sm font-semibold text-white" title="Coming in v2">-</p>
                   </div>
                 </div>
               </div>

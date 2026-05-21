@@ -1,83 +1,59 @@
-﻿import { Download, Filter } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Download, Filter } from "lucide-react";
 import { toast } from "../../stores/toastStore";
+import { auditAPI } from "../../services/api";
 
-interface LogEntry {
-  timestamp: string;
-  level: string;
-  levelColor: string;
-  agent: string;
-  agentColor: string;
-  message: string;
+interface AuditLogEntry {
+  _id: string;
+  command: string;
+  status: string;
+  startedAt: string;
+  agentId?: string;
+  stderrSummary?: string;
 }
 
-const logs: LogEntry[] = [
-  {
-    timestamp: "2024-02-05 18:03:42",
-    level: "[INFO]",
-    levelColor: "text-green-400",
-    agent: "rust-agent-01",
-    agentColor: "text-blue-400",
-    message: "Job data-sync-job-4521 completed successfully",
-  },
-  {
-    timestamp: "2024-02-05 18:02:15",
-    level: "[DEBUG]",
-    levelColor: "text-gray-400",
-    agent: "rust-agent-03",
-    agentColor: "text-blue-400",
-    message: "Starting ML training job-8842 with 4 GPU cores",
-  },
-  {
-    timestamp: "2024-02-05 18:01:38",
-    level: "[WARN]",
-    levelColor: "text-yellow-400",
-    agent: "rust-agent-03",
-    agentColor: "text-blue-400",
-    message: "Memory usage at 82.4% - approaching threshold",
-  },
-  {
-    timestamp: "2024-02-05 17:58:22",
-    level: "[INFO]",
-    levelColor: "text-green-400",
-    agent: "rust-agent-02",
-    agentColor: "text-blue-400",
-    message: "Backup job-2341 completed in 8m 12s",
-  },
-  {
-    timestamp: "2024-02-05 17:51:45",
-    level: "[DEPLOY]",
-    levelColor: "text-purple-400",
-    agent: "rust-agent-02",
-    agentColor: "text-blue-400",
-    message: "Agent deployed to eu-west-2b region",
-  },
-  {
-    timestamp: "2024-02-05 17:46:18",
-    level: "[ERROR]",
-    levelColor: "text-red-400",
-    agent: "rust-agent-01",
-    agentColor: "text-blue-400",
-    message: "Job validation-job-7723 failed: Schema mismatch at line 342",
-  },
-  {
-    timestamp: "2024-02-05 17:39:51",
-    level: "[INFO]",
-    levelColor: "text-green-400",
-    agent: "rust-agent-03",
-    agentColor: "text-blue-400",
-    message: "Indexing job-5512 completed successfully",
-  },
-  {
-    timestamp: "2024-02-05 17:28:33",
-    level: "[DEBUG]",
-    levelColor: "text-gray-400",
-    agent: "rust-agent-01",
-    agentColor: "text-blue-400",
-    message: "Updated to version v2.4.1",
-  },
-];
+function levelForStatus(status: string) {
+  if (status === "FAILED" || status === "TIMEOUT") {
+    return { label: "[ERROR]", color: "text-red-400" };
+  }
+  if (status === "CANCELLED") {
+    return { label: "[WARN]", color: "text-yellow-400" };
+  }
+  return { label: "[INFO]", color: "text-green-400" };
+}
+
+function formatTimestamp(value: string) {
+  return new Date(value).toLocaleString();
+}
 
 export default function SystemLogs() {
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    auditAPI
+      .logs(20)
+      .then((response) => {
+        if (mounted) {
+          setLogs(response.data);
+          setError("");
+        }
+      })
+      .catch(() => {
+        if (mounted) setError("Could not load system logs");
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -102,18 +78,33 @@ export default function SystemLogs() {
 
       <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5 font-mono text-sm">
         <div className="space-y-2 max-h-80 overflow-y-auto">
-          {logs.map((log, i) => (
-            <div key={i} className="flex gap-2 leading-relaxed">
-              <span className="text-gray-500 shrink-0">{log.timestamp}</span>
-              <span className={`font-bold shrink-0 ${log.levelColor}`}>
-                {log.level}
-              </span>
-              <span className={`font-semibold shrink-0 ${log.agentColor}`}>
-                {log.agent}
-              </span>
-              <span className="text-gray-300">{log.message}</span>
-            </div>
-          ))}
+          {loading && <p className="text-gray-400">Loading logs...</p>}
+          {error && <p className="text-red-400">{error}</p>}
+          {!loading && !error && logs.length === 0 && (
+            <p className="text-gray-400">No logs yet</p>
+          )}
+          {!loading &&
+            !error &&
+            logs.map((log) => {
+              const level = levelForStatus(log.status);
+              return (
+                <div key={log._id} className="flex gap-2 leading-relaxed">
+                  <span className="text-gray-500 shrink-0">
+                    {formatTimestamp(log.startedAt)}
+                  </span>
+                  <span className={`font-bold shrink-0 ${level.color}`}>
+                    {level.label}
+                  </span>
+                  <span className="font-semibold shrink-0 text-blue-400">
+                    {log.agentId || "control-plane"}
+                  </span>
+                  <span className="text-gray-300">
+                    {log.status} {log.command}
+                    {log.stderrSummary ? ` - ${log.stderrSummary}` : ""}
+                  </span>
+                </div>
+              );
+            })}
         </div>
       </div>
     </div>

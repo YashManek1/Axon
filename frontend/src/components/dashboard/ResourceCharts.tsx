@@ -1,42 +1,32 @@
+import { useEffect, useMemo, useState } from "react";
 import { Cpu, MemoryStick, Network } from "lucide-react";
 import {
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
   Tooltip,
 } from "recharts";
+import { agentsAPI } from "../../services/api";
 
-const cpuData = [
-  { name: "rust-agent-01", value: 16, color: "#3b82f6" },
-  { name: "rust-agent-03", value: 12, color: "#22c55e" },
-  { name: "rust-agent-02", value: 10, color: "#a855f7" },
-  { name: "Available", value: 26, color: "#3a3a4a" },
-];
+const colors = ["#3b82f6", "#22c55e", "#a855f7", "#ec4899", "#f59e0b"];
 
-const memData = [
-  { name: "rust-agent-01", value: 32, color: "#a855f7" },
-  { name: "rust-agent-03", value: 28, color: "#ec4899" },
-  { name: "rust-agent-02", value: 24, color: "#f59e0b" },
-  { name: "Available", value: 44, color: "#3a3a4a" },
-];
+interface Agent {
+  _id: string;
+  name: string;
+  status: string;
+  systemInfo?: {
+    cpuLoad?: number;
+    ramTotal?: number;
+    ramUsed?: number;
+  };
+}
 
-const networkData = [
-  { time: "1", inbound: 2.1, outbound: 2.0 },
-  { time: "2", inbound: 2.3, outbound: 2.1 },
-  { time: "3", inbound: 2.5, outbound: 2.3 },
-  { time: "4", inbound: 2.4, outbound: 2.5 },
-  { time: "5", inbound: 2.8, outbound: 2.4 },
-  { time: "6", inbound: 2.6, outbound: 2.6 },
-  { time: "7", inbound: 3.0, outbound: 2.7 },
-  { time: "8", inbound: 3.2, outbound: 2.8 },
-  { time: "9", inbound: 3.5, outbound: 3.0 },
-];
+interface ChartDatum {
+  name: string;
+  value: number;
+  color: string;
+}
 
 interface LabelProps {
   name?: string;
@@ -48,7 +38,7 @@ interface LabelProps {
   outerRadius?: number;
 }
 
-function DonutChart({ data }: { data: typeof cpuData }) {
+function DonutChart({ data }: { data: ChartDatum[] }) {
   const renderLabel = ({
     name,
     value,
@@ -60,7 +50,7 @@ function DonutChart({ data }: { data: typeof cpuData }) {
   }: LabelProps) => {
     if (!cx || !cy || midAngle === undefined || !innerRadius || !outerRadius)
       return null;
-    if (name === "Available") return null;
+    if (!value || name === "Available") return null;
     const RADIAN = Math.PI / 180;
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
@@ -74,7 +64,7 @@ function DonutChart({ data }: { data: typeof cpuData }) {
         dominantBaseline="central"
         fontSize={10}
       >
-        {value}
+        {Math.round(value)}
       </text>
     );
   };
@@ -84,18 +74,20 @@ function DonutChart({ data }: { data: typeof cpuData }) {
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
-            data={data}
+            data={data.length ? data : [{ name: "No data", value: 1, color: "#3a3a4a" }]}
             cx="50%"
             cy="50%"
             innerRadius={50}
             outerRadius={80}
             dataKey="value"
             strokeWidth={0}
-            label={renderLabel}
+            label={data.length ? renderLabel : undefined}
           >
-            {data.map((entry, i) => (
-              <Cell key={i} fill={entry.color} />
-            ))}
+            {(data.length ? data : [{ name: "No data", value: 1, color: "#3a3a4a" }]).map(
+              (entry, i) => (
+                <Cell key={i} fill={entry.color} />
+              ),
+            )}
           </Pie>
           <Tooltip
             contentStyle={{
@@ -111,23 +103,131 @@ function DonutChart({ data }: { data: typeof cpuData }) {
   );
 }
 
+function toGb(valueMb: number) {
+  return valueMb / 1024;
+}
+
 export default function ResourceCharts() {
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    agentsAPI
+      .getAll()
+      .then((response) => {
+        if (mounted) {
+          setAgents(response.data);
+          setError("");
+        }
+      })
+      .catch(() => {
+        if (mounted) setError("Could not load resource telemetry");
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const metrics = useMemo(() => {
+    const cpuData = agents
+      .map((agent, index) => ({
+        name: agent.name,
+        value: Number(agent.systemInfo?.cpuLoad || 0),
+        color: colors[index % colors.length],
+      }))
+      .filter((item) => item.value > 0);
+    const cpuUtilized = cpuData.reduce((sum, item) => sum + item.value, 0);
+    const cpuCapacity = agents.length * 100;
+
+    if (cpuCapacity > cpuUtilized) {
+      cpuData.push({
+        name: "Available",
+        value: cpuCapacity - cpuUtilized,
+        color: "#3a3a4a",
+      });
+    }
+
+    const memData = agents
+      .map((agent, index) => ({
+        name: agent.name,
+        value: Number(agent.systemInfo?.ramUsed || 0),
+        color: colors[index % colors.length],
+      }))
+      .filter((item) => item.value > 0);
+    const ramUsed = memData.reduce((sum, item) => sum + item.value, 0);
+    const ramTotal = agents.reduce(
+      (sum, agent) => sum + Number(agent.systemInfo?.ramTotal || 0),
+      0,
+    );
+
+    if (ramTotal > ramUsed) {
+      memData.push({
+        name: "Available",
+        value: ramTotal - ramUsed,
+        color: "#3a3a4a",
+      });
+    }
+
+    const online = agents.filter((agent) => agent.status === "online").length;
+    const offline = agents.length - online;
+    const statusData = [
+      { name: "Online", value: online, color: "#22c55e" },
+      { name: "Offline", value: offline, color: "#ef4444" },
+    ].filter((item) => item.value > 0);
+
+    return {
+      cpuData,
+      cpuCapacity,
+      cpuUtilized,
+      memData,
+      ramTotal,
+      ramUsed,
+      statusData,
+      online,
+    };
+  }, [agents]);
+
+  if (loading) {
+    return (
+      <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5 text-sm text-gray-400">
+        Loading resource telemetry...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5 text-sm text-red-400">
+        {error}
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-bold text-white">CPU Allocation</h3>
+          <h3 className="text-lg font-bold text-white">CPU Load</h3>
           <Cpu className="w-5 h-5 text-blue-400" />
         </div>
-        <DonutChart data={cpuData} />
+        <DonutChart data={metrics.cpuData} />
         <div className="flex justify-between text-sm mt-2 pt-3 border-t border-[#23232f]">
           <div>
-            <span className="text-gray-400">Total Cores</span>
-            <p className="font-semibold text-white">64</p>
+            <span className="text-gray-400">Agents</span>
+            <p className="font-semibold text-white">{agents.length}</p>
           </div>
           <div className="text-right">
-            <span className="text-gray-400">Utilized</span>
-            <p className="font-semibold text-emerald-400">38 (59.4%)</p>
+            <span className="text-gray-400">Average</span>
+            <p className="font-semibold text-emerald-400">
+              {agents.length ? `${Math.round(metrics.cpuUtilized / agents.length)}%` : "0%"}
+            </p>
           </div>
         </div>
       </div>
@@ -137,71 +237,39 @@ export default function ResourceCharts() {
           <h3 className="text-lg font-bold text-white">Memory Usage</h3>
           <MemoryStick className="w-5 h-5 text-purple-400" />
         </div>
-        <DonutChart data={memData} />
+        <DonutChart data={metrics.memData} />
         <div className="flex justify-between text-sm mt-2 pt-3 border-t border-[#23232f]">
           <div>
             <span className="text-gray-400">Total RAM</span>
-            <p className="font-semibold text-white">128 GB</p>
+            <p className="font-semibold text-white">
+              {toGb(metrics.ramTotal).toFixed(1)} GB
+            </p>
           </div>
           <div className="text-right">
-            <span className="text-gray-400">Utilized</span>
-            <p className="font-semibold text-emerald-400">84 GB (65.6%)</p>
+            <span className="text-gray-400">Used</span>
+            <p className="font-semibold text-emerald-400">
+              {toGb(metrics.ramUsed).toFixed(1)} GB
+            </p>
           </div>
         </div>
       </div>
 
       <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-bold text-white">Network I/O</h3>
+          <h3 className="text-lg font-bold text-white">Agent Status</h3>
           <Network className="w-5 h-5 text-emerald-400" />
         </div>
-        <div className="h-48">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={networkData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#23232f" />
-              <XAxis dataKey="time" stroke="transparent" />
-              <YAxis stroke="#666" fontSize={12} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#1a1a24",
-                  border: "1px solid #2d2d3a",
-                  borderRadius: "8px",
-                  color: "#fff",
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="inbound"
-                stroke="#22c55e"
-                strokeWidth={2}
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="outbound"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex items-center justify-center gap-6 mt-2">
-          <span className="flex items-center gap-1.5 text-sm text-gray-400">
-            <span className="w-3 h-0.5 bg-emerald-500 rounded" /> Inbound
-          </span>
-          <span className="flex items-center gap-1.5 text-sm text-gray-400">
-            <span className="w-3 h-0.5 bg-blue-500 rounded" /> Outbound
-          </span>
-        </div>
+        <DonutChart data={metrics.statusData} />
         <div className="flex justify-between text-sm mt-2 pt-3 border-t border-[#23232f]">
           <div>
-            <span className="text-gray-400">Bandwidth</span>
-            <p className="font-semibold text-white">10 Gbps</p>
+            <span className="text-gray-400">Online</span>
+            <p className="font-semibold text-white">{metrics.online}</p>
           </div>
           <div className="text-right">
-            <span className="text-gray-400">Current</span>
-            <p className="font-semibold text-emerald-400">4.2 Gbps</p>
+            <span className="text-gray-400">Offline</span>
+            <p className="font-semibold text-emerald-400">
+              {agents.length - metrics.online}
+            </p>
           </div>
         </div>
       </div>

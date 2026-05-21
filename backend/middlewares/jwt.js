@@ -4,10 +4,10 @@ import dotenv from "dotenv";
 dotenv.config();
 
 export const authUser = async (req, res, next) => {
-  const token = req.header("Authorization");
+  const token = req.cookies?.axon_session || req.header("Authorization");
   if (!token) return res.status(401).send("Access Denied");
   try {
-    const bearerToken = token.split(" ")[1];
+    const bearerToken = token.startsWith("Bearer ") ? token.split(" ")[1] : token;
     if (bearerToken == null) {
       return res.status(401).json({ message: "token null" });
     }
@@ -20,10 +20,10 @@ export const authUser = async (req, res, next) => {
 };
 
 export const authAdmin = async (req, res, next) => {
-  const token = req.header("Authorization");
+  const token = req.cookies?.axon_session || req.header("Authorization");
   if (!token) return res.status(401).send("Access Denied");
   try {
-    const bearerToken = token.split(" ")[1];
+    const bearerToken = token.startsWith("Bearer ") ? token.split(" ")[1] : token;
     if (bearerToken == null) {
       return res.status(401).json({ message: "token null" });
     }

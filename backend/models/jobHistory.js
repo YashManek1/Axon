@@ -26,6 +26,7 @@ const JobHistorySchema = new mongoose.Schema(
 
 // Create an Index so loading history is fast
 JobHistorySchema.index({ orgId: 1, executedAt: -1 });
+JobHistorySchema.index({ jobId: 1, executedAt: -1 });
 
 const JobHistory = mongoose.model("JobHistory", JobHistorySchema);
 export default JobHistory;

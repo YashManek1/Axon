@@ -1,0 +1,4 @@
+allowBuilds:
+  bcrypt: true
+  mongodb-memory-server: true
+  msgpackr-extract: true

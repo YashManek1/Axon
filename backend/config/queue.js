@@ -1,11 +1,11 @@
 import { Queue } from "bullmq";
 import Redis from "ioredis";
-import { constants } from "os";
+import { environment } from "./environment.js";
+import { createChildLogger } from "./logger.js";
 
-const redisConnection = new Redis({
-  host: process.env.REDIS_HOST,
-  port: process.env.REDIS_PORT,
-  password: process.env.REDIS_PASSWORD,
+const logger = createChildLogger({ module: "queue" });
+
+const redisConnection = new Redis(environment.REDIS_URI, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   retryStrategy: (times) => {
@@ -15,11 +15,11 @@ const redisConnection = new Redis({
 });
 
 redisConnection.on("connect", () => {
-  console.log("Connected to Redis");
+  logger.info({ redisUriConfigured: true }, "Connected to Redis");
 });
 
 redisConnection.on("error", (err) => {
-  console.error("Redis connection error:", err);
+  logger.error({ err }, "Redis connection error");
 });
 
 const scheduledJobsQueue = new Queue("scheduled-jobs", {

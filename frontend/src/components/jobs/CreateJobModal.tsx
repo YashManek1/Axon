@@ -18,6 +18,15 @@ const steps = [
   "Review",
 ];
 
+const defaultSink = {
+  type: null,
+  uri: "",
+  databaseName: "",
+  collectionName: "",
+  exportFormat: [],
+  encryptionAlg: "AES-256-GCM",
+};
+
 export default function CreateJobModal({
   onClose,
   onSuccess,
@@ -46,14 +55,7 @@ export default function CreateJobModal({
       onFailure: true,
       recipients: [],
     },
-    sink: {
-      type: null,
-      uri: "",
-      databaseName: "",
-      collectionName: "",
-      exportFormat: [],
-      encryptionAlg: "AES-256-GCM",
-    },
+    sink: defaultSink,
     scheduleType: "Cron",
     schedule: "*/5 * * * *",
     timezone: "UTC",
@@ -390,7 +392,7 @@ export default function CreateJobModal({
                 onClick={() =>
                   updateForm({
                     sink: {
-                      ...formData.sink,
+                      ...(formData.sink || defaultSink),
                       type: formData.sink?.type === "mongo" ? null : "mongo",
                     },
                   })

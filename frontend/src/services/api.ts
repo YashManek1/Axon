@@ -1,26 +1,51 @@
-﻿import axios from "axios";
+import axios from "axios";
+import { useAuthStore, type User } from "../stores/authStore";
+
+let navigateToLogin: (() => void) | null = null;
+let refreshPromise: Promise<unknown> | null = null;
+
+export function setAuthNavigationHandler(handler: () => void) {
+  navigateToLogin = handler;
+}
 
 const api = axios.create({
   baseURL: "/",
   headers: { "Content-Type": "application/json" },
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("axon_token");
-  if (token) {
-    config.headers.Authorization = "Bearer " + token;
-  }
-  return config;
+  withCredentials: true,
 });
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401 || error.response?.status === 400) {
-      localStorage.removeItem("axon_token");
-      localStorage.removeItem("axon_user");
-      window.location.href = "/login";
+  async (error) => {
+    const originalRequest = error.config || {};
+
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.skipAuthRefresh
+    ) {
+      originalRequest._retry = true;
+
+      try {
+        refreshPromise =
+          refreshPromise ||
+          api.post("/user/refresh", undefined, { skipAuthRefresh: true } as Record<string, unknown>);
+        const refreshResponse = (await refreshPromise) as { data?: { user?: unknown } };
+        refreshPromise = null;
+
+        if (refreshResponse.data?.user) {
+          useAuthStore.getState().login(refreshResponse.data.user as User);
+        }
+
+        return api(originalRequest);
+      } catch (refreshError) {
+        refreshPromise = null;
+        useAuthStore.getState().logout();
+        navigateToLogin?.();
+        return Promise.reject(refreshError);
+      }
     }
+
     return Promise.reject(error);
   },
 );
@@ -35,6 +60,17 @@ export const authAPI = {
     orgName: string;
     orgDescription?: string;
   }) => api.post("/user/register", data),
+  logout: () =>
+    api.post("/user/logout", undefined, { skipAuthRefresh: true } as Record<string, unknown>),
+  refresh: () =>
+    api.post("/user/refresh", undefined, { skipAuthRefresh: true } as Record<string, unknown>),
+};
+
+export const auditAPI = {
+  recent: (limit = 8) => api.get("/audit/recent", { params: { limit } }),
+  logs: (limit = 20) => api.get("/audit/logs", { params: { limit } }),
+  jobHistory: (jobId: string, limit = 10, skip = 0) =>
+    api.get("/audit/job/" + jobId, { params: { limit, skip } }),
 };
 
 export const jobsAPI = {
@@ -51,6 +87,13 @@ export const jobsAPI = {
 export const agentsAPI = {
   getAll: () => api.get("/agents/getAgents"),
   getById: (id: string) => api.get("/agents/getAgent/" + id),
+  register: (data: { name: string; hardwareUuid: string }, orgApiKey: string) =>
+    api.post("/agents/register", data, {
+      headers: { "X-Axon-API-Key": orgApiKey },
+      skipAuthRefresh: true,
+    } as Record<string, unknown>),
+  rotateKey: (id: string) => api.post("/agents/" + id + "/rotate-key"),
+  decommission: (id: string) => api.delete("/agents/" + id),
 };
 
 export const adminAPI = {
@@ -62,3 +105,6 @@ export const adminAPI = {
 };
 
 export default api;
+
+// If Axon later renders user-generated HTML, sanitize it at the boundary before
+// passing it to dangerouslySetInnerHTML.

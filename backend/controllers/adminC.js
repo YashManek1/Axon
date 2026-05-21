@@ -3,6 +3,9 @@ import jobModel from "../models/job.js";
 import jobHistoryModel from "../models/jobHistory.js";
 import orgModel from "../models/organization.js";
 import mongoose from "mongoose";
+import { createChildLogger } from "../config/logger.js";
+
+const logger = createChildLogger({ module: "admin-controller" });
 
 export const HealthCheck = async (req, res) => {
   try {
@@ -27,6 +30,7 @@ export const HealthCheck = async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
+    logger.error({ err: error }, "Health check failed");
     res.status(500).json({ status: "error", dbConnected: false });
   }
 };
@@ -67,6 +71,7 @@ export const jobStats = async (req, res) => {
       jobsRunLast24h: jobsRunLast24h.length,
     });
   } catch (e) {
+    logger.error({ err: e }, "Failed to fetch job stats");
     res.status(500).json({ message: "Failed to fetch job stats" });
   }
 };
@@ -99,6 +104,7 @@ export const userStats = async (req, res) => {
       users: userData,
     });
   } catch (e) {
+    logger.error({ err: e }, "Failed to fetch user stats");
     res.status(500).json({ message: "Failed to fetch user stats" });
   }
 };
@@ -112,6 +118,7 @@ export const getAllJobs = async (req, res) => {
       .populate("orgId", "name");
     res.json(jobs);
   } catch (e) {
+    logger.error({ err: e }, "Failed to fetch all jobs");
     res.status(500).json({ message: "Failed to fetch all jobs" });
   }
 };
@@ -121,6 +128,7 @@ export const getAllUsers = async (req, res) => {
     const users = await userModel.find().populate("orgId", "name");
     res.json(users);
   } catch (e) {
+    logger.error({ err: e }, "Failed to fetch all users");
     res.status(500).json({ message: "Failed to fetch all users" });
   }
 };

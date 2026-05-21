@@ -80,4 +80,6 @@ const JobSchema = new mongoose.Schema({
   dependsOn: [{ type: mongoose.Schema.Types.ObjectId, ref: "Job" }],
 });
 
+JobSchema.index({ orgId: 1, status: 1 });
+
 export default mongoose.model("Job", JobSchema);

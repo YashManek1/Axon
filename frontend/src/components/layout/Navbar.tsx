@@ -3,13 +3,15 @@ import { useAuthStore } from "../../stores/authStore";
 import { useNavigate, Link } from "react-router-dom";
 import { useState } from "react";
 import { toast } from "../../stores/toastStore";
+import { authAPI } from "../../services/api";
 
 export default function Navbar() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await authAPI.logout().catch(() => undefined);
     logout();
     toast.info("Signed Out", "You have been signed out successfully");
     navigate("/login");

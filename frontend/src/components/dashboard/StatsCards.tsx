@@ -1,8 +1,9 @@
 import { Monitor, CheckCircle, Database, Gauge } from "lucide-react";
-import { useAgents } from "../../hooks/useDashboardData";
+import { useAgents, useJobStats } from "../../hooks/useDashboardData";
 
 export default function StatsCards() {
   const { data: agents } = useAgents();
+  const { data: jobStats } = useJobStats();
 
   const activeAgentCount = agents
     ? agents.filter((a) => a.status === "online" || a.status === "busy").length
@@ -21,26 +22,26 @@ export default function StatsCards() {
     },
     {
       label: "JOBS SUCCESS RATE",
-      value: "98.2%",
-      change: "0.3%",
-      up: true,
+      value: jobStats ? `${jobStats.enabledJobs}/${jobStats.totalJobs}` : "-",
+      change: jobStats ? `${jobStats.jobsRunLast24h} run` : "Coming in v2",
+      up: Boolean(jobStats?.enabledJobs),
       icon: CheckCircle,
       color: "text-blue-400",
       bg: "bg-blue-500/20",
     },
     {
       label: "DATA SUNK",
-      value: "2.4 GB",
-      change: "8.1%",
-      up: true,
+      value: "-",
+      change: "Coming in v2",
+      up: false,
       icon: Database,
       color: "text-purple-400",
       bg: "bg-purple-500/20",
     },
     {
       label: "AVG. LATENCY",
-      value: "45ms",
-      change: "5.2ms",
+      value: "-",
+      change: "Coming in v2",
       up: false,
       icon: Gauge,
       color: "text-orange-400",

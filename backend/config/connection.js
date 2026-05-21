@@ -1,4 +1,7 @@
 import mongoose from "mongoose";
+import { createChildLogger } from "./logger.js";
+
+const logger = createChildLogger({ module: "mongo-connection" });
 
 async function connectMongoDb(URL) {
   try {
@@ -13,29 +16,29 @@ async function connectMongoDb(URL) {
       retryWrites: true,
       retryReads: true,
     });
-    console.log(`Connected to MongoDB: ${conn.connection.host}`);
+    logger.info({ host: conn.connection.host }, "Connected to MongoDB");
 
     mongoose.connection.on("connected", () => {
-      console.log("Mongoose connected to MongoDB");
+      logger.info({ readyState: mongoose.connection.readyState }, "Mongoose connected to MongoDB");
     });
 
     mongoose.connection.on("error", (err) => {
-      console.error("Mongoose connection error:", err);
+      logger.error({ err }, "Mongoose connection error");
     });
 
     mongoose.connection.on("disconnected", () => {
-      console.log("Mongoose disconnected from MongoDB");
+      logger.warn({ readyState: mongoose.connection.readyState }, "Mongoose disconnected from MongoDB");
     });
 
     process.on("SIGINT", async () => {
       await mongoose.connection.close();
-      console.log("MongoDB connection closed through app termination");
+      logger.info({ signal: "SIGINT" }, "MongoDB connection closed through app termination");
       process.exit(0);
     });
 
     return conn;
   } catch (err) {
-    console.error("Failed to connect to MongoDB:", err);
+    logger.fatal({ err }, "Failed to connect to MongoDB");
     process.exit(1);
   }
 }

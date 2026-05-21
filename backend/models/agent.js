@@ -11,7 +11,7 @@ const AgentSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
     },
     orgId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -22,6 +22,23 @@ const AgentSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+    },
+    hardwareUuid: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    decommissionedAt: {
+      type: Date,
+      default: null,
+    },
+    registeredAt: {
+      type: Date,
+      default: Date.now,
+    },
+    lastApiKeyRotatedAt: {
+      type: Date,
+      default: null,
     },
     status: {
       type: String,
@@ -47,6 +64,8 @@ const AgentSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+AgentSchema.index({ orgId: 1, hardwareUuid: 1 }, { unique: true });
 
 AgentSchema.pre("save", async function (next) {
   if (!this.isModified("apiKey")) return next();

@@ -19,7 +19,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await authAPI.login({ email, password });
-      login(res.data.user, res.data.token);
+      login(res.data.user);
       toast.success("Welcome back!", "You have signed in successfully");
       navigate("/dashboard");
     } catch (err: unknown) {

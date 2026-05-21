@@ -24,7 +24,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const res = await authAPI.register(form);
-      login(res.data.user, res.data.token);
+      login(res.data.user);
       toast.success("Account Created!", "Welcome to Axon");
       navigate("/dashboard");
     } catch (err: unknown) {
