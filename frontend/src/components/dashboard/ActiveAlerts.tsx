@@ -22,36 +22,36 @@ export default function ActiveAlerts() {
           agent.status === "online" &&
           (!agent.lastSeen || Date.now() - new Date(agent.lastSeen).getTime() > 60000);
 
-        return [
-          ramPercent > 80
-            ? {
-                icon: AlertTriangle,
-                iconColor: "text-yellow-400",
-                iconBg: "bg-yellow-500/10",
-                title: "High Memory Usage",
-                desc: `${agent.name} memory usage is ${ramPercent.toFixed(1)}%`,
-                time: timeAgo(agent.lastSeen),
-                severity: "Medium",
-                severityColor: "text-yellow-400",
-                action: "Acknowledge",
-                actionColor: "text-blue-400",
-              }
-            : null,
-          stale
-            ? {
-                icon: XCircle,
-                iconColor: "text-red-400",
-                iconBg: "bg-red-500/10",
-                title: "Stale Agent",
-                desc: `${agent.name} has not sent telemetry in over 60 seconds`,
-                time: timeAgo(agent.lastSeen),
-                severity: "High",
-                severityColor: "text-red-400",
-                action: "View Details",
-                actionColor: "text-blue-400",
-              }
-            : null,
-        ].filter(Boolean);
+        const items = [];
+        if (ramPercent > 80) {
+          items.push({
+            icon: AlertTriangle,
+            iconColor: "text-yellow-400",
+            iconBg: "bg-yellow-500/10",
+            title: "High Memory Usage",
+            desc: `${agent.name} memory usage is ${ramPercent.toFixed(1)}%`,
+            time: timeAgo(agent.lastSeen),
+            severity: "Medium",
+            severityColor: "text-yellow-400",
+            action: "Acknowledge",
+            actionColor: "text-blue-400",
+          });
+        }
+        if (stale) {
+          items.push({
+            icon: XCircle,
+            iconColor: "text-red-400",
+            iconBg: "bg-red-500/10",
+            title: "Stale Agent",
+            desc: `${agent.name} has not sent telemetry in over 60 seconds`,
+            time: timeAgo(agent.lastSeen),
+            severity: "High",
+            severityColor: "text-red-400",
+            action: "View Details",
+            actionColor: "text-blue-400",
+          });
+        }
+        return items;
       })
       .slice(0, 3) || [];
 

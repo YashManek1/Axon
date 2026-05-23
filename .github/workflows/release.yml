@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  build-agent:
+  build-cross:
     name: Build Agent for ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
     strategy:
@@ -21,14 +21,6 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact_name: axon-agent-windows-x86_64.exe
             binary_path: agent/target/x86_64-pc-windows-msvc/release/agent.exe
-          - os: macos-13
-            target: x86_64-apple-darwin
-            artifact_name: axon-agent-macos-x86_64
-            binary_path: agent/target/x86_64-apple-darwin/release/agent
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact_name: axon-agent-macos-aarch64
-            binary_path: agent/target/aarch64-apple-darwin/release/agent
 
     steps:
       - name: Checkout repository
@@ -61,9 +53,47 @@ jobs:
           path: dist/${{ matrix.job.artifact_name }}
           retention-days: 1
 
+  build-macos:
+    name: Build macOS Agent Binaries
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Build macOS x86_64 binary
+        run: cargo build --release --target x86_64-apple-darwin --manifest-path agent/Cargo.toml
+
+      - name: Build macOS aarch64 binary
+        run: cargo build --release --target aarch64-apple-darwin --manifest-path agent/Cargo.toml
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p dist
+          cp agent/target/x86_64-apple-darwin/release/agent dist/axon-agent-macos-x86_64
+          cp agent/target/aarch64-apple-darwin/release/agent dist/axon-agent-macos-aarch64
+
+      - name: Upload macOS Intel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: axon-agent-macos-x86_64
+          path: dist/axon-agent-macos-x86_64
+          retention-days: 1
+
+      - name: Upload macOS Apple Silicon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: axon-agent-macos-aarch64
+          path: dist/axon-agent-macos-aarch64
+          retention-days: 1
+
   create-release:
     name: Create GitHub Release
-    needs: build-agent
+    needs: [build-cross, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
