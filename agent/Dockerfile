@@ -1,7 +1,7 @@
-FROM rust:1.78-alpine AS builder
+FROM rust:1.85-alpine AS builder
 
 WORKDIR /app
-RUN apk add --no-cache musl-dev openssl-dev pkgconfig
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
 
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src && echo "fn main() {}" > src/main.rs

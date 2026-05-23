@@ -1,0 +1,94 @@
+name: Release Agent
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-agent:
+    name: Build Agent for ${{ matrix.job.target }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: axon-agent-linux-x86_64
+            binary_path: agent/target/x86_64-unknown-linux-gnu/release/agent
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: axon-agent-windows-x86_64.exe
+            binary_path: agent/target/x86_64-pc-windows-msvc/release/agent.exe
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact_name: axon-agent-macos-x86_64
+            binary_path: agent/target/x86_64-apple-darwin/release/agent
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: axon-agent-macos-aarch64
+            binary_path: agent/target/aarch64-apple-darwin/release/agent
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: matrix.job.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.job.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.job.target }} --manifest-path agent/Cargo.toml
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp ${{ matrix.job.binary_path }} dist/${{ matrix.job.artifact_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.job.artifact_name }}
+          path: dist/${{ matrix.job.artifact_name }}
+          retention-days: 1
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-agent
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List downloaded artifacts
+        run: ls -R dist
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/axon-agent-linux-x86_64
+            dist/axon-agent-windows-x86_64.exe
+            dist/axon-agent-macos-x86_64
+            dist/axon-agent-macos-aarch64
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
