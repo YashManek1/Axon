@@ -18,6 +18,8 @@ import HomePage from "./pages/HomePage";
 import ToastContainer from "./components/ui/ToastContainer";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
 import "./toast-animation.css";
+import { Analytics } from "@vercel/analytics/react";
+
 
 const queryClient = new QueryClient();
 
@@ -77,6 +79,7 @@ function App() {
         </Routes>
         <ToastContainer />
         <ConfirmDialog />
+        <Analytics />
       </BrowserRouter>
     </QueryClientProvider>
   );
