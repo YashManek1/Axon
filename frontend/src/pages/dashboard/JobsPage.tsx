@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Job } from "../../hooks/useDashboardData";
 import JobFormSlide from "../../components/dashboard/JobFormSlide";
 import { useNavigate } from "react-router-dom";
+import { useConfirmStore } from "../../stores/confirmStore";
 
 type StatusFilter = "all" | "active" | "paused";
 
@@ -30,13 +31,14 @@ function formatSchedule(schedule: string): string {
 
 export default function JobsPage() {
   const { data: jobs = [], isLoading } = useJobs();
-  const queryClient = useQueryClient();
-  const navigate    = useNavigate();
-  const [filter,    setFilter]    = useState<StatusFilter>("all");
-  const [formOpen,  setFormOpen]  = useState(false);
-  const [editing,   setEditing]   = useState<Job | null>(null);
-  const [running,   setRunning]   = useState<Record<string, boolean>>({});
-  const [toggling,  setToggling]  = useState<Record<string, boolean>>({});
+  const queryClient  = useQueryClient();
+  const navigate     = useNavigate();
+  const confirmOpen  = useConfirmStore((s) => s.open);
+  const [filter,   setFilter]   = useState<StatusFilter>("all");
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing,  setEditing]  = useState<Job | null>(null);
+  const [running,  setRunning]  = useState<Record<string, boolean>>({});
+  const [toggling, setToggling] = useState<Record<string, boolean>>({});
 
   const filtered = jobs.filter((j) => {
     if (filter === "all")    return true;
@@ -72,15 +74,21 @@ export default function JobsPage() {
     }
   };
 
-  const deleteJob = async (job: Job) => {
-    if (!job._id) return;
-    try {
-      await jobsAPI.delete(job._id);
-      toast.success("Deleted", job.name);
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    } catch {
-      toast.error("Failed", "Could not delete " + job.name);
-    }
+  const deleteJob = (job: Job) => {
+    confirmOpen({
+      title: "Delete Job",
+      message: "Are you sure you want to delete this job? This action cannot be undone.",
+      confirmLabel: "Delete",
+      onConfirm: async () => {
+        try {
+          await jobsAPI.delete(job._id!);
+          toast.success("Deleted", job.name);
+          queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        } catch {
+          toast.error("Failed", "Could not delete " + job.name);
+        }
+      },
+    });
   };
 
   return (

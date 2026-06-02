@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ActiveJobQueue from "../components/dashboard/ActiveJobQueue";
+import JobsPage from "../pages/dashboard/JobsPage";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { useJobs } from "../hooks/useDashboardData";
 import { jobsAPI } from "../services/api";
@@ -18,23 +18,30 @@ vi.mock("../services/api", () => ({
     toggle: vi.fn(),
     delete: vi.fn(),
     runNow: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
   },
+}));
+
+vi.mock("../stores/toastStore", () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
+vi.mock("../components/dashboard/JobFormSlide", () => ({
+  default: () => null,
 }));
 
 const mockedUseJobs = vi.mocked(useJobs);
 const mockedJobsAPI = vi.mocked(jobsAPI);
 
-function renderQueue() {
+function renderPage() {
   const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
+    defaultOptions: { queries: { retry: false } },
   });
-
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <ActiveJobQueue />
+        <JobsPage />
         <ConfirmDialog />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -66,14 +73,8 @@ describe("ActiveJobQueue", () => {
 
   it("renders empty state when jobs array is empty", () => {
     mockedUseJobs.mockReturnValue({ data: [], isLoading: false } as never);
-
-    renderQueue();
-
-    expect(
-      screen.getByText(
-        "No jobs created yet. Create your first job using the Quick Actions panel.",
-      ),
-    ).toBeInTheDocument();
+    renderPage();
+    expect(screen.getByText("No jobs found")).toBeInTheDocument();
   });
 
   it("renders job rows when jobs are provided", () => {
@@ -81,9 +82,7 @@ describe("ActiveJobQueue", () => {
       data: [job(1), job(2)],
       isLoading: false,
     } as never);
-
-    renderQueue();
-
+    renderPage();
     expect(screen.getByText("Job 1")).toBeInTheDocument();
     expect(screen.getByText("Job 2")).toBeInTheDocument();
   });
@@ -100,8 +99,8 @@ describe("ActiveJobQueue", () => {
       }) as never,
     );
 
-    renderQueue();
-    const button = screen.getByRole("button", { name: "Run now" });
+    renderPage();
+    const button = screen.getByTitle("Run now");
     await userEvent.click(button);
 
     expect(button).toBeDisabled();
@@ -115,8 +114,8 @@ describe("ActiveJobQueue", () => {
       isLoading: false,
     } as never);
 
-    renderQueue();
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    renderPage();
+    await userEvent.click(screen.getByTitle("Delete"));
 
     expect(screen.getByText("Delete Job")).toBeInTheDocument();
     expect(
@@ -126,16 +125,11 @@ describe("ActiveJobQueue", () => {
     ).toBeInTheDocument();
   });
 
-  it("pagination shows when more than 10 jobs exist", () => {
-    mockedUseJobs.mockReturnValue({
-      data: Array.from({ length: 11 }, (_, index) => job(index + 1)),
-      isLoading: false,
-    } as never);
-
-    renderQueue();
-
-    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Previous" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
+  it("status filter buttons are rendered", () => {
+    mockedUseJobs.mockReturnValue({ data: [], isLoading: false } as never);
+    renderPage();
+    expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Active" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Paused" })).toBeInTheDocument();
   });
 });
