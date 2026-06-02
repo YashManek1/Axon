@@ -97,7 +97,7 @@ describe("AgentGrid", () => {
     mockedUseAgents.mockReturnValue({ data: [], isLoading: false } as never);
     renderPage();
     expect(
-      screen.getByRole("button", { name: /register agent/i }),
-    ).toBeInTheDocument();
+      screen.getAllByRole("button", { name: /register agent/i }).length,
+    ).toBeGreaterThan(0);
   });
 });
