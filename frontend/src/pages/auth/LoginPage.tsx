@@ -1,17 +1,19 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Sun, Moon } from "lucide-react";
 import { authAPI } from "../../services/api";
 import { useAuthStore } from "../../stores/authStore";
-import { Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { useThemeStore } from "../../stores/themeStore";
 import { toast } from "../../stores/toastStore";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
-  const { login } = useAuthStore();
+  const [error,    setError]    = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const navigate      = useNavigate();
+  const { login }     = useAuthStore();
+  const { theme, toggle } = useThemeStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,104 +22,143 @@ export default function LoginPage() {
     try {
       const res = await authAPI.login({ email, password });
       login(res.data.user);
-      toast.success("Welcome back!", "You have signed in successfully");
+      toast.success("Welcome back", "Signed in successfully");
       navigate("/dashboard");
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } } };
-      const msg = error.response?.data?.message || "Login failed";
+      const msg =
+        (err as { response?: { data?: { message?: string } } }).response?.data?.message ||
+        "Login failed";
       setError(msg);
-      toast.error("Login Failed", msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-4">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl" />
-      </div>
-
-      <div className="w-full max-w-md relative z-10">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-4 mb-4">
-            <img
-              src="/axon-logo.png"
-              alt="Axon Logo"
-              className="w-20 h-20 rounded-2xl object-contain drop-shadow-lg"
-            />
-            <span className="text-4xl font-bold text-white">Axon</span>
-          </div>
-          <p className="text-gray-400">Distributed Job Scheduler</p>
+    <div className="auth">
+      <aside className="auth-aside">
+        <div className="grid-bg" />
+        <div className="topline">
+          <span className="wordmark">Axon</span>
         </div>
 
-        <div className="bg-[#111118] border border-[#23232f] rounded-2xl p-8">
-          <h2 className="text-2xl font-bold text-white mb-2">Welcome back</h2>
-          <p className="text-gray-400 mb-6">Sign in to your account</p>
+        <div className="mid">
+          <span className="eyebrow" style={{ color: "var(--accent)" }}>Control plane access</span>
+          <h2 style={{ marginTop: 14 }}>Sign in to the control plane.</h2>
+          <p className="lede">
+            Trigger commands, watch them stream, and review the audit trail for every machine your org operates.
+          </p>
+
+          <div className="term auth-proof" style={{ marginTop: 30, boxShadow: "var(--shadow)" }}>
+            <div className="term-head">
+              <span className="row gap-2" style={{ fontSize: "var(--t-xs)", color: "#8b95a4" }}>
+                <span className="live-dot" />
+                fleet · 14 agents online
+              </span>
+            </div>
+            <div className="term-body">
+              <div className="term-line"><span className="ts">14:22:07</span><span className="lvl c-ok">OK  </span><span>ord-web-03 · exit 0 · 1.49s</span></div>
+              <div className="term-line"><span className="ts">14:21:55</span><span className="lvl c-acc">LEASE</span><span>billing-reconcile · owner worker-a</span></div>
+              <div className="term-line"><span className="ts">14:21:40</span><span className="lvl c-info">INFO</span><span>sjc-cache-02 reconnected</span></div>
+              <div className="term-line"><span className="ts">14:21:02</span><span className="lvl c-warn">WARN</span><span>fra-db-01 lease ttl &lt; 5s</span></div>
+              <div className="term-line"><span className="ts">14:20:33</span><span className="lvl c-ok">OK  </span><span>nightly-backup · exit 0</span></div>
+            </div>
+          </div>
+
+          <ul className="feats">
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+              <span><b>Every action audited</b> — your sessions are recorded the same as any operator.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="mono" style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)" }}>
+          © 2026 Axon · control plane v1
+        </div>
+      </aside>
+
+      <main className="auth-main">
+        <div className="auth-top-controls">
+          <button className="btn btn-ghost btn-sm" onClick={toggle}>
+            {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+        </div>
+
+        <div className="auth-card">
+          <div className="head">
+            <h1>Sign in</h1>
+            <p>Welcome back. Authenticate to reach your control plane.</p>
+          </div>
 
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4">
-              <p className="text-red-400 text-sm">{error}</p>
+            <div className="banner err" style={{ marginBottom: 16 }}>
+              <span style={{ flex: 1 }}>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                Email
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-[#1a1a24] border border-[#2d2d3a] rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                  placeholder="you@example.com"
-                  required
-                />
-              </div>
+          <form className="auth-form" onSubmit={handleSubmit}>
+            <div className="field">
+              <label className="label" htmlFor="login-email">Work email</label>
+              <input
+                className="input"
+                id="login-email"
+                type="email"
+                placeholder="alice@acme.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="username"
+                required
+              />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-[#1a1a24] border border-[#2d2d3a] rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                  placeholder="Enter your password"
-                  required
-                />
+
+            <div className="field">
+              <div className="label-row">
+                <label className="label" htmlFor="login-pw">Password</label>
+                <a href="#">Forgot?</a>
               </div>
+              <input
+                className="input"
+                id="login-pw"
+                type="password"
+                placeholder="••••••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
             </div>
+
             <button
+              className="btn btn-primary"
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              style={{ width: "100%", height: 44, fontSize: "var(--t-base)" }}
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>
-                  Sign In <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              {loading ? "Signing in…" : "Sign in"}
             </button>
+
+            <div className="auth-divider">or continue with</div>
+            <div className="sso">
+              <button type="button" className="btn btn-ghost" style={{ border: "1px solid var(--border-strong)" }}>
+                SSO / SAML
+              </button>
+              <button type="button" className="btn btn-ghost" style={{ border: "1px solid var(--border-strong)" }}>
+                GitHub
+              </button>
+            </div>
           </form>
 
-          <p className="text-center text-gray-400 mt-6">
-            Don't have an account?{" "}
-            <Link to="/register" className="text-blue-400 hover:text-blue-300">
-              Sign up
-            </Link>
+          <p className="auth-foot">
+            New to Axon? <Link to="/register">Create an organization →</Link>
+          </p>
+          <p className="auth-legal">
+            Protected by org access policy. Sign-in events are written to your audit log.
           </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

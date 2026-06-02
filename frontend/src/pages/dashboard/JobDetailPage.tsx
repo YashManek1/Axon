@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, Play } from "lucide-react";
-import LiveLogTerminal from "../../components/dashboard/LiveLogTerminal";
+import { ArrowLeft, Play, Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
 import { auditAPI, jobsAPI } from "../../services/api";
 import { toast } from "../../stores/toastStore";
 import type { Job } from "../../hooks/useDashboardData";
@@ -15,59 +14,65 @@ interface AuditRecord {
   durationMs?: number;
   exitCode?: number;
   stderrSummary?: string;
+  command?: string;
 }
 
-const historyPageSize = 10;
+const PAGE_SIZE = 10;
+
+function statusBadge(status: string) {
+  const map: Record<string, string> = {
+    COMPLETED: "completed", FAILED: "failed", TIMEOUT: "timeout",
+    PENDING: "pending", DISPATCHED: "dispatched",
+  };
+  return <span className={"badge " + (map[status] || "cancelled")}>{status}</span>;
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: ".06em", fontFamily: "var(--font-mono)" }}>{label}</span>
+      <span style={{ fontSize: "var(--t-sm)", color: "var(--text)", fontFamily: "var(--font-mono)" }}>{value}</span>
+    </div>
+  );
+}
 
 export default function JobDetailPage() {
-  const { jobId } = useParams();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [historyPage, setHistoryPage] = useState(0);
+  const { jobId }       = useParams();
+  const navigate        = useNavigate();
+  const queryClient     = useQueryClient();
+  const [page, setPage] = useState(0);
   const [running, setRunning] = useState(false);
 
   const jobQuery = useQuery<Job>({
     queryKey: ["jobs", jobId],
-    queryFn: async () => {
-      const response = await jobsAPI.getById(jobId || "");
-      return response.data;
-    },
+    queryFn: async () => { const r = await jobsAPI.getById(jobId!); return r.data; },
     enabled: Boolean(jobId),
   });
 
   const historyQuery = useQuery<AuditRecord[]>({
-    queryKey: ["audit", "job", jobId, historyPage],
-    queryFn: async () => {
-      const response = await auditAPI.jobHistory(
-        jobId || "",
-        historyPageSize,
-        historyPage * historyPageSize,
-      );
-      return response.data;
-    },
+    queryKey: ["audit", "job", jobId, page],
+    queryFn: async () => { const r = await auditAPI.jobHistory(jobId!, PAGE_SIZE, page * PAGE_SIZE); return r.data; },
     enabled: Boolean(jobId),
     refetchInterval: 10000,
   });
 
-  const job = jobQuery.data;
+  const job       = jobQuery.data;
+  const history   = historyQuery.data ?? [];
   const createdBy = useMemo(() => {
-    if (!job) return "-";
-    return typeof job.userId === "object" ? job.userId.username : "-";
+    if (!job) return "—";
+    return typeof job.userId === "object" ? job.userId.username : "—";
   }, [job]);
 
   const runNow = async () => {
     if (!jobId) return;
+    setRunning(true);
     try {
-      setRunning(true);
       await jobsAPI.runNow(jobId);
-      await queryClient.invalidateQueries({ queryKey: ["audit", "job", jobId] });
-      toast.success("Job Triggered", "The job has been queued for immediate execution");
+      toast.success("Dispatched", job?.name ?? jobId);
+      queryClient.invalidateQueries({ queryKey: ["audit", "job", jobId] });
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      toast.error(
-        "Trigger Failed",
-        axiosErr.response?.data?.message || "Could not trigger the job",
-      );
+      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message || "Dispatch failed";
+      toast.error("Failed", msg);
     } finally {
       setRunning(false);
     }
@@ -75,129 +80,111 @@ export default function JobDetailPage() {
 
   if (jobQuery.isLoading) {
     return (
-      <div className="bg-[#111118] border border-[#23232f] rounded-xl p-10 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-gray-500 animate-spin" />
+      <div className="panel empty"><Loader2 size={24} style={{ animation: "spin 0.8s linear infinite", color: "var(--text-faint)" }} /></div>
+    );
+  }
+  if (!job) {
+    return (
+      <div className="panel empty">
+        <h3>Job not found</h3>
+        <div className="actions"><button className="btn btn-ghost btn-sm" onClick={() => navigate("/dashboard/jobs")}><ArrowLeft size={14} /> Back to jobs</button></div>
       </div>
     );
   }
 
-  if (!job || !jobId) {
-    return (
-      <div className="bg-[#111118] border border-[#23232f] rounded-xl p-10 text-center">
-        <p className="text-gray-400">Job not found</p>
-      </div>
-    );
-  }
+  const payload = job.payload as Record<string, unknown>;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => navigate("/dashboard")}
-          className="flex items-center gap-2 text-sm text-gray-300 hover:text-white"
-        >
-          <ArrowLeft className="w-4 h-4" /> Back to dashboard
-        </button>
-        <button
-          onClick={runNow}
-          disabled={running}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-        >
-          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-          Run Now
-        </button>
-      </div>
-
-      <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5">
-        <h1 className="text-2xl font-bold text-white mb-4">{job.name}</h1>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 text-sm">
-          <div>
-            <p className="text-gray-400">Schedule</p>
-            <p className="text-white font-mono">{job.schedule}</p>
-          </div>
-          <div>
-            <p className="text-gray-400">Type</p>
-            <p className="text-white uppercase">{job.type}</p>
-          </div>
-          <div>
-            <p className="text-gray-400">Status</p>
-            <p className="text-white">{job.enabled ? "Active" : "Paused"}</p>
-          </div>
-          <div>
-            <p className="text-gray-400">Created By</p>
-            <p className="text-white">{createdBy}</p>
-          </div>
-          <div>
-            <p className="text-gray-400">Job ID</p>
-            <p className="text-white font-mono truncate">{job._id}</p>
-          </div>
+    <>
+      <div className="page-head">
+        <div>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate("/dashboard/jobs")} style={{ marginBottom: 8 }}>
+            <ArrowLeft size={14} /> Jobs
+          </button>
+          <h1>{job.name}</h1>
+          <p>Job ID: <span className="mono">{job._id}</span></p>
+        </div>
+        <div className="actions">
+          <span className={"badge " + (job.enabled || job.status === "active" ? "active" : "paused")}>
+            {job.enabled ? "active" : "paused"}
+          </span>
+          <button className="btn btn-primary btn-sm" disabled={running} onClick={runNow}>
+            {running ? <Loader2 size={14} style={{ animation: "spin 0.8s linear infinite" }} /> : <Play size={14} />}
+            Run now
+          </button>
         </div>
       </div>
 
-      <LiveLogTerminal jobId={jobId} orgId={String(job.orgId)} />
-
-      <div className="bg-[#111118] border border-[#23232f] rounded-xl p-5">
-        <h2 className="text-xl font-bold text-white mb-4">Execution History</h2>
-        {historyQuery.isLoading ? (
-          <div className="py-10 flex justify-center">
-            <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
-          </div>
-        ) : !historyQuery.data || historyQuery.data.length === 0 ? (
-          <p className="text-sm text-gray-400">No executions yet</p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-xs text-gray-400 uppercase border-b border-[#23232f]">
-                    <th className="pb-3 pr-4">Started</th>
-                    <th className="pb-3 pr-4">Status</th>
-                    <th className="pb-3 pr-4">Duration</th>
-                    <th className="pb-3 pr-4">Exit</th>
-                    <th className="pb-3">Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historyQuery.data.map((run) => (
-                    <tr key={run._id} className="border-b border-[#1a1a24]">
-                      <td className="py-3 pr-4 text-sm text-gray-300">
-                        {new Date(run.startedAt).toLocaleString()}
-                      </td>
-                      <td className="py-3 pr-4 text-sm text-white">{run.status}</td>
-                      <td className="py-3 pr-4 text-sm text-gray-300">
-                        {run.durationMs ?? "-"}ms
-                      </td>
-                      <td className="py-3 pr-4 text-sm text-gray-300">
-                        {run.exitCode ?? "-"}
-                      </td>
-                      <td className="py-3 text-sm text-red-300">
-                        {run.stderrSummary || "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><span className="panel-title">Job configuration</span></div>
+        <div className="panel-pad" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
+          <DetailRow label="Type"     value={job.type} />
+          <DetailRow label="Schedule" value={job.schedule} />
+          <DetailRow label="Retries"  value={String(job.retryLimit)} />
+          <DetailRow label="Created by" value={createdBy} />
+          {job.type === "shell" && payload?.command && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <DetailRow label="Command" value={String(payload.command)} />
             </div>
-            <div className="flex items-center justify-between pt-4">
-              <button
-                onClick={() => setHistoryPage((current) => Math.max(current - 1, 0))}
-                disabled={historyPage === 0}
-                className="px-3 py-1.5 text-sm text-gray-300 bg-[#1a1a24] border border-[#2d2d3a] rounded-lg disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <span className="text-sm text-gray-400">Page {historyPage + 1}</span>
-              <button
-                onClick={() => setHistoryPage((current) => current + 1)}
-                disabled={historyQuery.data.length < historyPageSize}
-                className="px-3 py-1.5 text-sm text-gray-300 bg-[#1a1a24] border border-[#2d2d3a] rounded-lg disabled:opacity-50"
-              >
-                Next
-              </button>
+          )}
+          {job.type === "http" && payload?.url && (
+            <div style={{ gridColumn: "1 / -1", display: "flex", gap: 20 }}>
+              <DetailRow label="URL"    value={String(payload.url)} />
+              <DetailRow label="Method" value={String(payload.method || "GET")} />
             </div>
-          </>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">Execution history</span>
+          <span className="grow" />
+          <span style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)" }}>Page {page + 1}</span>
+        </div>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Started</th>
+              <th>Status</th>
+              <th>Duration</th>
+              <th>Exit</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {historyQuery.isLoading ? (
+              <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>Loading…</td></tr>
+            ) : history.length === 0 ? (
+              <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>No executions yet</td></tr>
+            ) : (
+              history.map((run) => (
+                <tr key={run._id}>
+                  <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{new Date(run.startedAt).toLocaleString()}</td>
+                  <td>{statusBadge(run.status)}</td>
+                  <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{run.durationMs ? `${(run.durationMs / 1000).toFixed(1)}s` : "—"}</td>
+                  <td>
+                    {run.exitCode == null ? (
+                      <span className="mono" style={{ color: "var(--text-faint)" }}>—</span>
+                    ) : run.exitCode === 0 ? (
+                      <span style={{ color: "var(--ok)" }}><CheckCircle size={14} /></span>
+                    ) : (
+                      <span style={{ color: "var(--err)" }}><XCircle size={14} /></span>
+                    )}
+                  </td>
+                  <td style={{ fontSize: "var(--t-xs)", color: "var(--err)", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {run.stderrSummary || "—"}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+        <div className="row gap-2" style={{ padding: "12px 16px", justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost btn-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>← Prev</button>
+          <button className="btn btn-ghost btn-sm" disabled={history.length < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Next →</button>
+        </div>
+      </div>
+    </>
   );
 }

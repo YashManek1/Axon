@@ -71,6 +71,11 @@ export const auditAPI = {
   logs: (limit = 20) => api.get("/audit/logs", { params: { limit } }),
   jobHistory: (jobId: string, limit = 10, skip = 0) =>
     api.get("/audit/job/" + jobId, { params: { limit, skip } }),
+  getAuditRun: (auditId: string) => api.get("/audit/run/" + auditId),
+  getAuditRunLogs: (auditId: string, count = 100) =>
+    api.get("/audit/run/" + auditId + "/logs", { params: { count } }),
+  export: (startDate: string, endDate: string, limit = 500) =>
+    api.get("/audit/export", { params: { startDate, endDate, limit } }),
 };
 
 export const jobsAPI = {

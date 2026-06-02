@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { jobsAPI, adminAPI, agentsAPI } from "../services/api";
+import { jobsAPI, adminAPI, agentsAPI, auditAPI } from "../services/api";
 import { useAuthStore } from "../stores/authStore";
 
 export interface Job {
@@ -138,5 +138,54 @@ export function useAllJobs() {
     },
     enabled: user?.role === "admin",
     refetchInterval: 30000,
+  });
+}
+
+export interface AuditEntry {
+  _id: string;
+  jobId: string;
+  triggerType: string;
+  command: string;
+  agentId: string | null;
+  status: string;
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  exitCode?: number | null;
+  stdoutSummary?: string;
+  stderrSummary?: string;
+}
+
+export function useAgentById(agentId: string | null) {
+  return useQuery<AgentData>({
+    queryKey: ["agents", agentId],
+    queryFn: async () => {
+      const res = await agentsAPI.getById(agentId!);
+      return res.data;
+    },
+    enabled: Boolean(agentId),
+    refetchInterval: 5000,
+  });
+}
+
+export function useRecentAudit(limit = 8) {
+  return useQuery<AuditEntry[]>({
+    queryKey: ["audit", "recent", limit],
+    queryFn: async () => {
+      const res = await auditAPI.recent(limit);
+      return res.data;
+    },
+    refetchInterval: 10000,
+  });
+}
+
+export function useAuditLogs(limit = 50) {
+  return useQuery<AuditEntry[]>({
+    queryKey: ["audit", "logs", limit],
+    queryFn: async () => {
+      const res = await auditAPI.logs(limit);
+      return res.data;
+    },
+    refetchInterval: 15000,
   });
 }

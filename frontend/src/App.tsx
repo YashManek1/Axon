@@ -12,8 +12,13 @@ import { authAPI, setAuthNavigationHandler } from "./services/api";
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
-import DashboardPage from "./pages/dashboard/DashboardPage";
+import OverviewPage from "./pages/dashboard/OverviewPage";
+import AgentsPage from "./pages/dashboard/AgentsPage";
+import JobsPage from "./pages/dashboard/JobsPage";
 import JobDetailPage from "./pages/dashboard/JobDetailPage";
+import AuditPage from "./pages/dashboard/AuditPage";
+import LivePage from "./pages/dashboard/LivePage";
+import RunbooksPage from "./pages/dashboard/RunbooksPage";
 import HomePage from "./pages/HomePage";
 import ToastContainer from "./components/ui/ToastContainer";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
@@ -72,8 +77,14 @@ function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<DashboardPage />} />
+            <Route index element={<Navigate to="/dashboard/overview" />} />
+            <Route path="overview" element={<OverviewPage />} />
+            <Route path="agents" element={<AgentsPage />} />
+            <Route path="jobs" element={<JobsPage />} />
             <Route path="jobs/:jobId" element={<JobDetailPage />} />
+            <Route path="audit" element={<AuditPage />} />
+            <Route path="live" element={<LivePage />} />
+            <Route path="runbooks" element={<RunbooksPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
