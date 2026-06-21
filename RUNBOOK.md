@@ -1,6 +1,42 @@
 # Axon Runbook
 
-This runbook uses the local Docker Compose development stack. MongoDB runs without authentication here for developer convenience; production must enable MongoDB authentication, TLS, and secret management.
+This runbook covers the local Docker Compose development stack and points to production steps. MongoDB runs without authentication in the dev stack for convenience; production must enable MongoDB authentication, TLS, and secret management (see [docs/deploy-azure.md](docs/deploy-azure.md)).
+
+---
+
+## Environment Variables
+
+### Backend (`.env` in repo root, loaded by Docker Compose)
+
+| Variable | Dev value | Description |
+|----------|-----------|-------------|
+| `MONGO_URI` | `mongodb://mongodb:27017/axon` | MongoDB connection string |
+| `REDIS_URI` | `redis://redis:6379` | Redis connection string |
+| `JWT_SECRET` | any 32+ char string | JWT signing key |
+| `ENCRYPTION_KEY` | 64 hex characters | AES-256-GCM key for sink URIs |
+| `PORT` | `3000` | HTTP port |
+| `NODE_ENV` | `production` | Node environment |
+| `LOG_LEVEL` | `info` | Pino log level |
+
+See `backend/.env.development` for a fully annotated template.  
+See `backend/.env.production` for the production template (Azure URIs).
+
+### Frontend (Vite environment variables)
+
+| Variable | Dev value | Description |
+|----------|-----------|-------------|
+| `VITE_API_BASE_URL` | `http://localhost:3000` | Backend REST base URL |
+| `VITE_SOCKET_URL` | `http://localhost:3000` | Socket.IO server URL |
+
+In dev, Vite's dev proxy forwards all API paths to `localhost:3000` — these env vars are only needed for cross-origin production builds.
+
+```bash
+# Production build with custom backend URL
+cd frontend
+VITE_API_BASE_URL=https://api.yourdomain.com npm run build
+```
+
+---
 
 ## 1. Start The Full Stack
 
@@ -252,3 +288,46 @@ The frontend also streams live logs on:
 ```text
 http://localhost/dashboard/jobs/${JOB_ID}
 ```
+
+---
+
+## 8. Production Deployment (Azure)
+
+See [docs/deploy-azure.md](docs/deploy-azure.md) for the full guide. Quick reference:
+
+```bash
+# Build and push backend image to Azure Container Registry
+az acr login --name axonregistry
+docker build -t axonregistry.azurecr.io/axon-backend:latest ./backend
+docker push axonregistry.azurecr.io/axon-backend:latest
+
+# Update the Container App to the new image
+az containerapp update \
+  --name axon-backend \
+  --resource-group axon-prod \
+  --image axonregistry.azurecr.io/axon-backend:latest
+
+# Build frontend for production
+cd frontend
+VITE_API_BASE_URL=https://api.yourdomain.com npm run build
+# Then deploy dist/ to Azure Static Web Apps (wired via GitHub Actions)
+```
+
+Rust agents on remote machines: see [docs/deploy-azure.md — Rust Agent Distribution](docs/deploy-azure.md#rust-agent-distribution).
+
+---
+
+## 9. Running Tests
+
+```bash
+# Backend tests
+cd backend && npm test -- --coverage
+
+# Frontend tests + type check
+cd frontend && npm test -- --run && npx tsc -b
+
+# Agent tests
+cd agent && cargo test
+```
+
+CI runs all three automatically on push to main. See `.github/workflows/ci.yml`.

@@ -8,6 +8,7 @@ import type { Job } from "../../hooks/useDashboardData";
 import JobFormSlide from "../../components/dashboard/JobFormSlide";
 import { useNavigate } from "react-router-dom";
 import { useConfirmStore } from "../../stores/confirmStore";
+import { track } from "@vercel/analytics";
 
 type StatusFilter = "all" | "active" | "paused";
 
@@ -52,6 +53,7 @@ export default function JobsPage() {
     try {
       await jobsAPI.runNow(job._id);
       toast.success("Dispatched", job.name);
+      track("job_triggered", { jobType: job.type });
       queryClient.invalidateQueries({ queryKey: ["audit"] });
     } catch {
       toast.error("Failed", "Could not dispatch " + job.name);
@@ -83,6 +85,7 @@ export default function JobsPage() {
         try {
           await jobsAPI.delete(job._id!);
           toast.success("Deleted", job.name);
+          track("job_deleted");
           queryClient.invalidateQueries({ queryKey: ["jobs"] });
         } catch {
           toast.error("Failed", "Could not delete " + job.name);
@@ -117,13 +120,13 @@ export default function JobsPage() {
         <span className="dep-line">{filtered.length} job{filtered.length !== 1 ? "s" : ""}</span>
       </div>
 
-      <div className="panel" style={{ overflow: "hidden" }}>
+      <div className="panel">
         {isLoading ? (
           <div style={{ padding: 32, textAlign: "center", color: "var(--text-faint)" }}>
             <Loader2 size={20} style={{ animation: "spin 0.8s linear infinite" }} />
           </div>
         ) : (
-          <table className="tbl">
+          <div className="table-wrap"><table className="tbl">
             <thead>
               <tr>
                 <th>Name</th>
@@ -201,7 +204,7 @@ export default function JobsPage() {
                 ))
               )}
             </tbody>
-          </table>
+          </table></div>
         )}
       </div>
 

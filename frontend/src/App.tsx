@@ -19,6 +19,7 @@ import JobDetailPage from "./pages/dashboard/JobDetailPage";
 import AuditPage from "./pages/dashboard/AuditPage";
 import LivePage from "./pages/dashboard/LivePage";
 import RunbooksPage from "./pages/dashboard/RunbooksPage";
+import AdminAnalyticsPage from "./pages/dashboard/AdminAnalyticsPage";
 import HomePage from "./pages/HomePage";
 import ToastContainer from "./components/ui/ToastContainer";
 import ConfirmDialog from "./components/ui/ConfirmDialog";
@@ -34,6 +35,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  if (user?.role !== "admin") return <Navigate to="/dashboard/overview" />;
+  return <>{children}</>;
+}
 function AuthNavigationBridge() {
   const navigate = useNavigate();
 
@@ -85,6 +92,7 @@ function App() {
             <Route path="audit" element={<AuditPage />} />
             <Route path="live" element={<LivePage />} />
             <Route path="runbooks" element={<RunbooksPage />} />
+            <Route path="admin" element={<AdminRoute><AdminAnalyticsPage /></AdminRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

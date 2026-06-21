@@ -3,6 +3,7 @@ import Hero from "../components/landing/Hero";
 import ProblemStrip from "../components/landing/ProblemStrip";
 import FourProblems from "../components/landing/FourProblems";
 import HowItWorks from "../components/landing/HowItWorks";
+import DataPipeline from "../components/landing/DataPipeline";
 import Architecture from "../components/landing/Architecture";
 import WhyNow from "../components/landing/WhyNow";
 import FailureModes from "../components/landing/FailureModes";
@@ -17,6 +18,7 @@ export default function HomePage() {
       <Hero />
       <ProblemStrip />
       <FourProblems />
+      <DataPipeline />
       <HowItWorks />
       <Architecture />
       <WhyNow />

@@ -5,6 +5,7 @@ import {
   HealthCheck,
   jobStats,
   userStats,
+  orgAnalytics,
   getAllJobs,
   getAllUsers,
 } from "../controllers/adminC.js";
@@ -16,5 +17,6 @@ router.get("/job-stats", authAdmin, jobStats);
 router.get("/user-stats", authAdmin, userStats);
 router.get("/all-jobs", authAdmin, getAllJobs);
 router.get("/all-users", authAdmin, getAllUsers);
+router.get("/org-analytics", authAdmin, orgAnalytics);
 
 export default router;

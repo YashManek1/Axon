@@ -765,6 +765,14 @@ body {
 .grid-2  { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; }
 .grid-2b { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .grid-3  { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+/* 4-col at desktop → 2-col at tablet → 1-col at mobile */
+.grid-4  { display: grid; grid-template-columns: repeat(4,1fr); gap: 20px; }
+/* auto-fill responsive grid: fills as many columns as fit at ≥280px */
+.grid-auto { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+/* 2-col label:value grid for detail rows */
+.kv-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 16px; }
+/* horizontal scroll wrapper — keeps wide tables from overflowing */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .stack   { display: flex; flex-direction: column; gap: 16px; }
 
 /* stat cards */
@@ -988,12 +996,54 @@ body {
 .auth-aside .feats svg { width: 17px; height: 17px; color: var(--accent); flex: none; margin-top: 1px; }
 .auth-aside .feats b   { color: var(--text); font-weight: 600; }
 
-/* ============================================================
+
+/* ── Collapsible form sections (JobFormSlide) ──────────────────────────── */
+.form-section {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.form-section > summary {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  user-select: none;
+}
+.form-section > summary::-webkit-details-marker { display: none; }
+.form-section[open] > summary {
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.form-section .section-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.header-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+  align-items: center;
+}/* ============================================================
    RESPONSIVE
    ============================================================ */
+
+/* Tablet — 2-col fallback for 4-col grids */
+@media (max-width: 1100px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+
 @media (max-width: 980px) {
   .stat-grid { grid-template-columns: repeat(2,1fr); }
-  .grid-2, .grid-2b, .grid-3 { grid-template-columns: 1fr; }
+  .grid-2, .grid-2b, .grid-3, .grid-4 { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; }
@@ -1001,6 +1051,10 @@ body {
   .side.open { transform: none; box-shadow: var(--shadow-lg); }
   .menu-btn { display: inline-flex !important; }
   .searchbar { display: none; }
+  /* On small screens the kv-grid collapses to a single column */
+  .kv-grid { grid-template-columns: 1fr; }
+  /* Live page terminal: fluid height on small screens */
+  .term-fluid { height: auto !important; min-height: 260px; max-height: 60vh; }
 }
 @media (max-width: 880px) {
   .auth { grid-template-columns: 1fr; }

@@ -2,7 +2,7 @@
 
 Distributed orchestration platform for remote execution, workflow scheduling, and scalable task processing.
 
-Axon is a multi-tenant distributed execution system built using Node.js, Redis, BullMQ, WebSockets, and Rust agents. It enables organizations to schedule, orchestrate, and execute jobs across remote machines with real-time telemetry, fault tolerance, and scalable infrastructure.
+Axon is a multi-tenant distributed execution system that enables organizations to schedule, orchestrate, and execute jobs across remote machines with real-time telemetry, fault tolerance, and scalable infrastructure. It solves four specific production problems: duplicate cron execution at scale, SSH/firewall-blocked remote access, missing tamper-evident audit trails, and uncontrolled shell access.
 
 ---
 
@@ -11,7 +11,7 @@ Axon is a multi-tenant distributed execution system built using Node.js, Redis, 
 ## Distributed Scheduling Engine
 
 * Redis-backed persistent scheduling using BullMQ
-* Immediate and recurring job execution
+* Immediate and recurring job execution with exactly-once semantics via SETNX + content-addressed job IDs
 * Retry logic with exponential backoff
 * Fault-tolerant queue architecture
 * Background worker processing
@@ -19,248 +19,256 @@ Axon is a multi-tenant distributed execution system built using Node.js, Redis, 
 ## Remote Execution via Rust Agents
 
 * Lightweight Rust agents installed on remote systems
-* Secure WebSocket-based communication
-* Remote shell command execution
-* Real-time execution feedback
-* Heartbeat & telemetry monitoring
+* **Outbound-only WebSocket over port 443** — no inbound ports, no VPN, no firewall changes required
+* Remote shell and HTTP command execution
+* Real-time log streaming over Socket.IO
+* Heartbeat & telemetry monitoring (CPU/RAM every 5 seconds)
+* Exponential reconnect backoff (1s → 30s) with offline job queuing
 
 ## Multi-Tenant Architecture
 
 * Organization-scoped infrastructure
 * Shared agent pools across teams
 * Data isolation between organizations
-* Role-aware workflow execution
+* Role-aware workflow execution (admin / user)
 
 ## DAG-Based Workflow Orchestration
 
 * Dependency-aware job execution
-* Workflow chaining
+* Workflow chaining via `dependsOn` job references
 * Circular dependency prevention
 * Directed execution pipelines
 
 ## Real-Time Observability
 
-* Live execution logs
-* CPU/RAM telemetry
-* Agent online/offline tracking
-* Job execution history
-* System monitoring
+* Live execution logs streamed over Socket.IO
+* CPU/RAM telemetry per agent
+* Agent online/offline tracking with 3-heartbeat miss threshold
+* Job execution history with full audit records
+* System monitoring dashboard
 
 ## Data Sink Pipelines
 
-* ETL-style execution outputs
-* MongoDB sink integrations
-* Structured result storage
-* External database support
+* Per-job MongoDB sink: export stdout/stderr to a configurable MongoDB collection
+* CSV, JSON, and Excel export formats
+* AES-256-GCM encrypted sink URIs
+
+## Immutable Audit Trail
+
+* AuditLog written **before** execution begins — records who triggered it, from where, and what command
+* Immutable fields: `startedAt`, `jobId`, `orgId`, `triggeredBy` — enforced by Mongoose pre-save hook
+* Satisfies SOC2 / ISO 27001 / HIPAA audit control requirements at the application layer
 
 ---
 
 # Architecture
 
-## Control Plane
+## Current System
 
-Built using:
-
-* Node.js
-* Express.js
-* Redis
-* BullMQ
-* Socket.IO
-* MongoDB
-
-Responsible for:
-
-* Queue orchestration
-* Job scheduling
-* Dependency management
-* Agent coordination
-* Real-time communication
-* Multi-tenant state management
-
----
-
-## Execution Layer
-
-Rust-based remote execution agents responsible for:
-
-* Command execution
-* Heartbeat telemetry
-* Log streaming
-* Execution feedback
-* System monitoring
-
-Agents connect to the control plane via persistent WebSocket connections.
-
----
-
-# System Design
-
-```text id="c8w12m"
-Dashboard/UI
-      │
-      ▼
-Node.js Control Plane
-      │
-┌───────────────┐
-│ Redis/BullMQ │
-└───────────────┘
-      │
-      ▼
- Job Workers
-      │
-      ▼
-Socket.IO Layer
-      │
-┌───────────────┐
-│ Rust Agents  │
-└───────────────┘
-      │
-      ▼
-Remote Machine Execution
 ```
+Dashboard / UI (React 19 + Vite + TypeScript)
+        │
+        │  HTTPS REST + Socket.IO (TLS port 443)
+        ▼
+Node.js Control Plane (Express 5, ESM)
+        │                     │
+        │                     ▼
+        │              Redis / BullMQ
+        │              (queue · SETNX lock · telemetry buffer)
+        │
+        │  WebSocket — port 443, outbound from agent
+        ▼
+  ┌──────────────────────────────────────────┐
+  │  Rust Agents  (Tokio · tungstenite)      │
+  │  prod-us-east · prod-eu-west · customer  │
+  │  WebSocket client only — no inbound ports│
+  └──────────────────────────────────────────┘
+```
+
+**Data stores:**
+- MongoDB (Mongoose) — jobs, users, orgs, agents, auditLogs, jobHistory
+- Redis + BullMQ — `scheduled-jobs` + `immediate-jobs` queues, distributed locks, telemetry buffer
+
+## Planned Architecture (roadmap)
+
+The highest-throughput hot path — agent WebSocket connections + telemetry fan-out — will be extracted to a **Go gateway microservice**. Go's goroutine model handles thousands of concurrent long-lived connections O(1) per goroutine (~2KB stack) vs. Node's event-loop serialization.
+
+```
+Rust Agents ──ws──▶  Go Gateway (goroutine/agent)
+                          │  Redis pub/sub (log chunks + telemetry)
+                          ▼
+                    Express / Socket.IO ──ws──▶ Dashboard UI
+```
+
+All CRUD, auth, job scheduling, and BullMQ workers remain in Node.js. Go handles only the agent-facing connection layer. See [docs/tech-audit.md](docs/tech-audit.md) for the full migration plan.
 
 ---
 
 # Tech Stack
 
 ## Backend
-
-* Node.js
-* Express.js
-* MongoDB
-* Redis
-* BullMQ
-* Socket.IO
+* Node.js 22 + Express 5 (ESM modules)
+* MongoDB (Mongoose ODM)
+* Redis + BullMQ (queues + distributed locking)
+* Socket.IO (bidirectional real-time, agent + UI connections)
+* Pino (structured logging) + Zod (request validation) + JWT (auth)
 
 ## Agent Runtime
-
-* Rust
-* Tokio
-* rust_socketio
-* serde
-* sys-info
+* Rust (stable toolchain)
+* Tokio (async runtime)
+* tokio-tungstenite (WebSocket client)
+* serde / serde_json
+* sys-info (CPU/RAM telemetry)
 
 ## Frontend
-
-* React
-* TypeScript
-* TailwindCSS
-* Zustand
-* TanStack Query
-* Recharts
+* React 19 + TypeScript
+* Vite (rolldown-vite)
+* Tailwind CSS v4 (CSS-first)
+* Zustand (state management)
+* TanStack React Query
+* Recharts + Framer Motion
 
 ---
 
 # Current Status
 
-Axon is currently under active development.
-
 Implemented:
-
-* Redis-backed BullMQ scheduling
-* Immediate + recurring job queues
-* Remote Rust agent execution
-* WebSocket communication layer
-* Multi-tenant organization model
-* Retry & failure handling
-* Agent heartbeat system
-* Job history tracking
-* Remote shell execution pipeline
+* Redis-backed BullMQ scheduling (immediate + recurring)
+* Remote Rust agent execution via outbound WebSocket
+* Socket.IO real-time log streaming
+* Multi-tenant organization model with JWT auth
+* Retry & failure handling with exponential backoff
+* Agent heartbeat system + online/offline tracking
+* Job history tracking + immutable audit log
+* DAG-based job dependency management
+* Data sink pipelines (MongoDB export)
+* Admin dashboard (job stats, user stats, health check)
 
 In Progress:
-
-* Live terminal log streaming
-* Advanced analytics dashboard
-* Workflow graph visualization
-* Agent provisioning improvements
-* Real-time telemetry dashboard
-* Production security hardening
+* Frontend responsiveness hardening (see [docs/tech-audit.md](docs/tech-audit.md))
+* Cryptographic hash-chaining for audit trail tamper-evidence
+* HTTP job form fields in UI (URL/method/headers for HTTP-type jobs)
+* Webhook URL configuration in UI
+* Go telemetry gateway extraction (planned)
 
 ---
 
 # Local Development Setup
 
-## Prerequisites
+## Quick Start (Docker Compose — recommended)
 
-* Node.js
-* Redis
-* MongoDB
-* Rust
+```bash
+# Clone and set up environment
+git clone https://github.com/YashManek1/Axon.git
+cd Axon
 
-## Start Redis
+# Copy and fill environment files
+cp backend/.env.development backend/.env
+# Edit backend/.env with your secrets (see backend/.env.development for all vars)
 
-```bash id="k3v1e8"
-redis-server
+# Start the full stack (MongoDB + Redis + backend + frontend)
+docker compose up -d
+
+# Frontend: http://localhost:80
+# Backend API: http://localhost:3000
+# See RUNBOOK.md for the full setup walkthrough
 ```
 
-## Backend
+## Manual Setup (without Docker)
 
-```bash id="r0x4mq"
+### Prerequisites
+* Node.js 22+
+* MongoDB 7 (local or Atlas)
+* Redis 7
+* Rust stable toolchain
+
+### Backend
+```bash
 cd backend
+cp .env.development .env      # edit with your local values
 npm install
 npm run dev
 ```
 
-## Frontend
-
-```bash id="m9s2lp"
+### Frontend
+```bash
 cd frontend
 npm install
 npm run dev
+# Dev server at http://localhost:5173
+# Proxies /user /jobs /admin /agents /audit /socket.io to localhost:3000
 ```
 
-## Rust Agent
-
-```bash id="f1q7vn"
+### Rust Agent
+```bash
 cd agent
+cp .env.example .env.agent    # edit with AGENT_ID, AGENT_API_KEY, CONTROL_PLANE_URL
 cargo run
 ```
 
 ---
 
+# Environment Configuration
+
+## Frontend
+
+| Variable | Development | Production |
+|----------|-------------|------------|
+| `VITE_API_BASE_URL` | `http://localhost:3000` | `https://api.yourdomain.com` |
+| `VITE_SOCKET_URL` | `http://localhost:3000` | `https://api.yourdomain.com` |
+
+In development, Vite proxies all API paths to `localhost:3000` automatically — `VITE_API_BASE_URL` is used only for cross-origin production deployments.
+
+For production builds:
+```bash
+VITE_API_BASE_URL=https://api.yourdomain.com npm run build
+```
+
+## Backend
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MONGO_URI` | Yes | MongoDB connection string |
+| `REDIS_URI` | Yes | Redis connection string |
+| `JWT_SECRET` | Yes | Min 32 characters |
+| `ENCRYPTION_KEY` | Yes | Exactly 64 hex characters |
+| `PORT` | No | Default: 3000 |
+| `NODE_ENV` | No | `development` / `production` |
+| `LOG_LEVEL` | No | `debug` / `info` / `warn` |
+
+See `backend/.env.development` (local) and `backend/.env.production` (template) for full examples.
+
+---
+
 # Deployment
 
-| Component    | Platform          |
-| ------------ | ----------------- |
-| Frontend     | Render            |
-| Backend      | Render            |
-| Database     | MongoDB Atlas     |
-| Queue System | Self-hosted Redis |
+**Production target: Microsoft Azure**
 
-Rust agents are currently run locally during development/testing.
-
----
-
-# Key Engineering Concepts
-
-* Distributed Systems
-* Producer-Consumer Architecture
-* Fault-Tolerant Scheduling
-* Workflow Orchestration
-* Real-Time Communication
-* Multi-Tenant Infrastructure
-* Remote Process Execution
-* Queue-Based Systems
-* Horizontal Scalability
+See [docs/deploy-azure.md](docs/deploy-azure.md) for the full guide including:
+* Azure Container Apps (backend, auto-scale to zero)
+* Azure Static Web Apps (frontend, free tier)
+* Azure Cache for Redis + Cosmos DB for MongoDB
+* Key Vault secret management
+* CI/CD pipeline (`deploy.yml`)
+* Cost table (minimal ~$80–$95/month, HA ~$255–$325/month)
+* Cost-reduction tricks
 
 ---
 
-# Vision
+# Documentation
 
-Axon explores scalable distributed orchestration systems for autonomous workflows, remote execution, and AI-native infrastructure.
-
-The long-term goal is to build a flexible execution platform capable of coordinating distributed workloads, developer tooling, and autonomous systems across remote environments.
+| Document | Description |
+|----------|-------------|
+| [RUNBOOK.md](RUNBOOK.md) | Step-by-step operational guide: local setup, registration, running jobs |
+| [docs/api-audit.md](docs/api-audit.md) | API coverage audit: what backend exposes vs. what frontend uses |
+| [docs/tech-audit.md](docs/tech-audit.md) | Tech-level audit framed by the 4 pain points + Go roadmap |
+| [docs/deploy-azure.md](docs/deploy-azure.md) | Azure deployment guide with costing |
+| [backend/swagger.yaml](backend/swagger.yaml) | OpenAPI spec (partial — needs update, see api-audit.md) |
 
 ---
 
 # Author
 
-Yash Manek
+Yash Manek — Backend & Distributed Systems Engineer
 
-Backend & Distributed Systems Engineer focused on:
-
-* AI infrastructure
-* Autonomous workflows
-* Distributed systems
-* Developer tooling
-* Agentic architectures
+Focused on: distributed systems · autonomous workflows · AI infrastructure · developer tooling

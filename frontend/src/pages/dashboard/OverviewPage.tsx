@@ -98,7 +98,7 @@ export default function OverviewPage() {
                 <Tooltip
                   contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, fontSize: 12 }}
                   labelFormatter={() => ""}
-                  formatter={(v: number) => [v, "executions"]}
+                  formatter={(v: number | undefined) => [v ?? 0, "executions"] as [React.ReactNode, React.ReactNode]}
                 />
                 <Area type="monotone" dataKey="v" stroke="var(--accent)" fill="url(#sparkGrad)" strokeWidth={2} dot={false} />
               </AreaChart>

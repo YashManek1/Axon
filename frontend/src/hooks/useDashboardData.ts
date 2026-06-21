@@ -2,21 +2,47 @@ import { useQuery } from "@tanstack/react-query";
 import { jobsAPI, adminAPI, agentsAPI, auditAPI } from "../services/api";
 import { useAuthStore } from "../stores/authStore";
 
+export interface JobNotifications {
+  onSuccess:  boolean;
+  onFailure:  boolean;
+  recipients: string[];
+}
+
+export interface JobExecutionWindow {
+  enabled:    boolean;
+  startTime:  string;
+  endTime:    string;
+  activeDays: string[];
+}
+
+export interface JobSink {
+  type:            string | null;
+  uri:             string | null;
+  databaseName?:   string | null;
+  collectionName?: string | null;
+  collection?:     string | null;
+  exportFormat?:   string[];
+}
+
 export interface Job {
-  _id: string;
-  name: string;
-  type: "http" | "shell";
-  schedule: string;
-  payload: Record<string, unknown>;
-  enabled: boolean;
-  retryLimit: number;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-  userId: { username: string; email: string } | string;
-  orgId: string | { name: string };
-  webhookUrl?: string;
-  sink?: { type: string | null; uri: string | null; collection: string | null };
+  _id:              string;
+  name:             string;
+  description?:     string;
+  type:             "http" | "shell";
+  schedule:         string;
+  payload:          Record<string, unknown>;
+  enabled:          boolean;
+  retryLimit:       number;
+  timeout?:         number;
+  status:           string;
+  createdAt:        string;
+  updatedAt:        string;
+  userId:           { username: string; email: string } | string;
+  orgId:            string | { name: string };
+  webhookUrl?:      string;
+  notifications?:   JobNotifications;
+  executionWindow?: JobExecutionWindow;
+  sink?:            JobSink;
 }
 
 export interface AgentData {
@@ -61,6 +87,37 @@ export interface UserStatsData {
   users: { username: string; email: string; orgId: string; jobCount: number }[];
 }
 
+
+export interface OrgStat {
+  orgId:          string;
+  orgName:        string;
+  orgDescription: string;
+  createdAt:      string;
+  userCount:      number;
+  agentCount:     number;
+  onlineAgents:   number;
+  offlineAgents:  number;
+  shellJobCount:  number;
+  httpJobCount:   number;
+  totalJobCount:  number;
+}
+
+export interface OrgAnalyticsData {
+  totalOrgs:     number;
+  totalAgents:   number;
+  onlineAgents:  number;
+  offlineAgents: number;
+  orgs:          OrgStat[];
+}
+
+export interface AllUser {
+  _id:       string;
+  username:  string;
+  email:     string;
+  role:      string;
+  orgId:     { name: string } | string;
+  createdAt: string;
+}
 // Fetch user's own jobs
 export function useJobs() {
   return useQuery<Job[]>({
@@ -141,6 +198,32 @@ export function useAllJobs() {
   });
 }
 
+
+export function useOrgAnalytics() {
+  const { user } = useAuthStore();
+  return useQuery<OrgAnalyticsData>({
+    queryKey: ["admin", "orgAnalytics"],
+    queryFn: async () => {
+      const res = await adminAPI.orgAnalytics();
+      return res.data;
+    },
+    enabled: user?.role === "admin",
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAllUsers() {
+  const { user } = useAuthStore();
+  return useQuery<AllUser[]>({
+    queryKey: ["admin", "allUsers"],
+    queryFn: async () => {
+      const res = await adminAPI.allUsers();
+      return res.data;
+    },
+    enabled: user?.role === "admin",
+    refetchInterval: 60_000,
+  });
+}
 export interface AuditEntry {
   _id: string;
   jobId: string;

@@ -1,6 +1,7 @@
 import userModel from "../models/user.js";
 import jobModel from "../models/job.js";
 import jobHistoryModel from "../models/jobHistory.js";
+import agentModel from "../models/agent.js";
 import orgModel from "../models/organization.js";
 import mongoose from "mongoose";
 import { createChildLogger } from "../config/logger.js";
@@ -109,6 +110,62 @@ export const userStats = async (req, res) => {
   }
 };
 
+
+export const orgAnalytics = async (req, res) => {
+  try {
+    const orgs = await orgModel.find().select("name description createdAt").lean();
+
+    const orgStats = await Promise.all(
+      orgs.map(async (org) => {
+        const [userCount, agents, shellJobCount, httpJobCount] = await Promise.all([
+          userModel.countDocuments({ orgId: org._id }),
+          agentModel
+            .find({ orgId: org._id, decommissionedAt: null })
+            .select("status")
+            .lean(),
+          jobModel.countDocuments({ orgId: org._id, type: "shell" }),
+          jobModel.countDocuments({ orgId: org._id, type: "http" }),
+        ]);
+
+        const onlineAgents  = agents.filter((a) => a.status === "online" || a.status === "busy").length;
+        const offlineAgents = agents.filter((a) => a.status === "offline").length;
+
+        return {
+          orgId:          org._id,
+          orgName:        org.name,
+          orgDescription: org.description ?? "",
+          createdAt:      org.createdAt,
+          userCount,
+          agentCount:    agents.length,
+          onlineAgents,
+          offlineAgents,
+          shellJobCount,
+          httpJobCount,
+          totalJobCount: shellJobCount + httpJobCount,
+        };
+      })
+    );
+
+    const [totalAgents, onlineAgentsTotal] = await Promise.all([
+      agentModel.countDocuments({ decommissionedAt: null }),
+      agentModel.countDocuments({
+        decommissionedAt: null,
+        status: { $in: ["online", "busy"] },
+      }),
+    ]);
+
+    res.json({
+      totalOrgs:     orgs.length,
+      totalAgents,
+      onlineAgents:  onlineAgentsTotal,
+      offlineAgents: totalAgents - onlineAgentsTotal,
+      orgs:          orgStats,
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Failed to fetch org analytics");
+    res.status(500).json({ message: "Failed to fetch org analytics" });
+  }
+};
 //Get All Jobs/Users
 export const getAllJobs = async (req, res) => {
   try {

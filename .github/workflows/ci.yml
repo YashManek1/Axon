@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Use Node.js 24 for GitHub Actions runner to avoid deprecation breakage (June 16 2026)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   backend-test:
     runs-on: ubuntu-latest
@@ -26,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
@@ -43,6 +47,8 @@ jobs:
         working-directory: agent
     steps:
       - uses: actions/checkout@v4
+      - name: Install OpenSSL build deps
+        run: sudo apt-get update -y && sudo apt-get install -y pkg-config libssl-dev
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test
 
@@ -55,12 +61,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm test
-      - run: npx tsc --noEmit
+      - run: npm test -- --run
+      # tsc -b follows project references (tsconfig.app.json) and matches the
+      # Docker build command (tsc -b && vite build). Using --noEmit here was a
+      # no-op because tsconfig.json has "files": [] at the root level.
+      - run: npx tsc -b
 
   build:
     runs-on: ubuntu-latest

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Play, Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
+import { ArrowLeft, Play, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { auditAPI, jobsAPI } from "../../services/api";
 import { toast } from "../../stores/toastStore";
 import type { Job } from "../../hooks/useDashboardData";
@@ -59,8 +59,8 @@ export default function JobDetailPage() {
   const job       = jobQuery.data;
   const history   = historyQuery.data ?? [];
   const createdBy = useMemo(() => {
-    if (!job) return "—";
-    return typeof job.userId === "object" ? job.userId.username : "—";
+    if (!job) return "-";
+    return typeof job.userId === "object" ? job.userId.username : "-";
   }, [job]);
 
   const runNow = async () => {
@@ -117,18 +117,18 @@ export default function JobDetailPage() {
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><span className="panel-title">Job configuration</span></div>
-        <div className="panel-pad" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
+        <div className="panel-pad grid-4">
           <DetailRow label="Type"     value={job.type} />
           <DetailRow label="Schedule" value={job.schedule} />
           <DetailRow label="Retries"  value={String(job.retryLimit)} />
           <DetailRow label="Created by" value={createdBy} />
-          {job.type === "shell" && payload?.command && (
+          {job.type === "shell" && Boolean(payload?.command) && (
             <div style={{ gridColumn: "1 / -1" }}>
               <DetailRow label="Command" value={String(payload.command)} />
             </div>
           )}
-          {job.type === "http" && payload?.url && (
-            <div style={{ gridColumn: "1 / -1", display: "flex", gap: 20 }}>
+          {job.type === "http" && Boolean(payload?.url) && (
+            <div style={{ gridColumn: "1 / -1", display: "flex", gap: 20, flexWrap: "wrap" }}>
               <DetailRow label="URL"    value={String(payload.url)} />
               <DetailRow label="Method" value={String(payload.method || "GET")} />
             </div>
@@ -142,47 +142,49 @@ export default function JobDetailPage() {
           <span className="grow" />
           <span style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)" }}>Page {page + 1}</span>
         </div>
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>Started</th>
-              <th>Status</th>
-              <th>Duration</th>
-              <th>Exit</th>
-              <th>Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            {historyQuery.isLoading ? (
-              <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>Loading…</td></tr>
-            ) : history.length === 0 ? (
-              <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>No executions yet</td></tr>
-            ) : (
-              history.map((run) => (
-                <tr key={run._id}>
-                  <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{new Date(run.startedAt).toLocaleString()}</td>
-                  <td>{statusBadge(run.status)}</td>
-                  <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{run.durationMs ? `${(run.durationMs / 1000).toFixed(1)}s` : "—"}</td>
-                  <td>
-                    {run.exitCode == null ? (
-                      <span className="mono" style={{ color: "var(--text-faint)" }}>—</span>
-                    ) : run.exitCode === 0 ? (
-                      <span style={{ color: "var(--ok)" }}><CheckCircle size={14} /></span>
-                    ) : (
-                      <span style={{ color: "var(--err)" }}><XCircle size={14} /></span>
-                    )}
-                  </td>
-                  <td style={{ fontSize: "var(--t-xs)", color: "var(--err)", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {run.stderrSummary || "—"}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Started</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Exit</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historyQuery.isLoading ? (
+                <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>Loading...</td></tr>
+              ) : history.length === 0 ? (
+                <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>No executions yet</td></tr>
+              ) : (
+                history.map((run) => (
+                  <tr key={run._id}>
+                    <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{new Date(run.startedAt).toLocaleString()}</td>
+                    <td>{statusBadge(run.status)}</td>
+                    <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{run.durationMs ? (run.durationMs / 1000).toFixed(1) + "s" : "-"}</td>
+                    <td>
+                      {run.exitCode == null ? (
+                        <span className="mono" style={{ color: "var(--text-faint)" }}>-</span>
+                      ) : run.exitCode === 0 ? (
+                        <span style={{ color: "var(--ok)" }}><CheckCircle size={14} /></span>
+                      ) : (
+                        <span style={{ color: "var(--err)" }}><XCircle size={14} /></span>
+                      )}
+                    </td>
+                    <td style={{ fontSize: "var(--t-xs)", color: "var(--err)", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {run.stderrSummary || "-"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
         <div className="row gap-2" style={{ padding: "12px 16px", justifyContent: "flex-end" }}>
-          <button className="btn btn-ghost btn-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>← Prev</button>
-          <button className="btn btn-ghost btn-sm" disabled={history.length < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Next →</button>
+          <button className="btn btn-ghost btn-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>&larr; Prev</button>
+          <button className="btn btn-ghost btn-sm" disabled={history.length < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Next &rarr;</button>
         </div>
       </div>
     </>

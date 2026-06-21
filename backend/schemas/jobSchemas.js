@@ -25,7 +25,6 @@ const sinkSchema = z.object({
   uri: z.string().nullable().optional(),
   databaseName: z.string().nullable().optional(),
   collectionName: z.string().nullable().optional(),
-  collection: z.string().nullable().optional(),
   exportFormat: z.array(z.enum(["CSV", "JSON", "Excel"])).optional(),
   encryptionAlg: z.string().optional(),
 });

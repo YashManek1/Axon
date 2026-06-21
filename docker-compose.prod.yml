@@ -1,0 +1,38 @@
+# Production override — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from the base compose:
+#   - No local mongodb/redis (uses Atlas + managed Redis via env vars)
+#   - Uses pre-built images instead of building from source
+#   - MongoDB port NOT exposed (no external access)
+#   - env_file points to backend/.env.production
+#   - Frontend image accepts VITE_API_BASE_URL at build time
+
+services:
+  # Disable local MongoDB — use MongoDB Atlas (MONGO_URI in env)
+  mongodb:
+    deploy:
+      replicas: 0
+
+  # Disable local Redis — use managed Redis (REDIS_URI in env)
+  redis:
+    deploy:
+      replicas: 0
+
+  backend:
+    image: ${BACKEND_IMAGE:-axon-backend:latest}
+    build: !reset null          # don't rebuild from source in prod
+    env_file:
+      - path: backend/.env.production
+        required: true
+    environment:
+      NODE_ENV: production
+    # Remove internal port exposure — put a reverse proxy / load balancer in front
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on: {}              # no local mongo/redis to wait for
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-axon-frontend:latest}
+    build: !reset null
+    depends_on: {}

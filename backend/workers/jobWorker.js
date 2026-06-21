@@ -21,6 +21,9 @@ import {
   dispatchCommandToAgent,
 } from "../services/jobExecutionRouter.js";
 import { publishLogChunk } from "../services/logStreamBroker.js";
+import { sendJobNotification } from "../services/notificationService.js";
+import { isWithinExecutionWindow } from "../utils/executionWindow.js";
+import { buildSinkPayload } from "../utils/sinkFormat.js";
 import {
   FLUSH_AGENT_TELEMETRY_JOB_NAME,
   flushAgentTelemetry,
@@ -117,6 +120,11 @@ export const jobProcessor = async (job) => {
     dependsOn,
     triggeredBy,
     triggerType,
+    notifications,
+    jobName,
+    executionWindow,
+    timezone,
+    timeout,
   } = job.data;
   const jobLogger = logger.child({
     bullJobId: job.id,
@@ -169,6 +177,22 @@ export const jobProcessor = async (job) => {
   }
 
   try {
+    // Skip run if current time is outside the configured execution window.
+    if (executionWindow?.enabled && !isWithinExecutionWindow(executionWindow, timezone)) {
+      jobLogger.info({ executionWindow, timezone }, "Job outside execution window; skipping run");
+      await safeUpdateAuditRecord(
+        auditId,
+        {
+          status: "SKIPPED",
+          completedAt: new Date(),
+          durationMs: Date.now() - startTime,
+          stderrSummary: "outside-execution-window",
+        },
+        jobLogger,
+      );
+      return { status: "skipped", jobId, reason: "outside-execution-window" };
+    }
+
     await setJobState(jobId, "RUNNING");
     await safeUpdateAuditRecord(auditId, { status: "DISPATCHED" }, jobLogger);
 
@@ -210,33 +234,36 @@ export const jobProcessor = async (job) => {
         { agentId: agent._id, agentName: agent.name, socketId: agent.socketId },
         "Dispatching shell job to agent",
       );
+      const agentTimeoutMs = (timeout ?? 30) * 1000;
       const agentResponse = await dispatchCommandToAgent(
         jobId,
         agent.socketId,
         payload.command,
-        10000,
+        agentTimeoutMs,
       );
       if (agentResponse.error) throw new Error(agentResponse.error);
       await publishCommandOutput(jobId, orgId, agentResponse);
       output = agentResponse;
     }
 
-    if (sink && sink.type === "mongo" && sink.uri && sink.collection) {
-      jobLogger.info({ sinkType: sink.type, collection: sink.collection }, "Sinking output");
+    if (sink && sink.type === "mongo" && sink.uri && sink.collectionName) {
+      jobLogger.info({ sinkType: sink.type, collection: sink.collectionName }, "Sinking output");
       try {
         const decryptedUri = decrypt(sink.uri);
-        const conn = await mongoose.createConnection(decryptedUri).asPromise();
+        const connOpts = sink.databaseName ? { dbName: sink.databaseName } : {};
+        const conn = await mongoose.createConnection(decryptedUri, connOpts).asPromise();
         const dataToSink = payload.url ? output.data : output;
-        await conn.collection(sink.collection).insertOne({
+        const formats = await buildSinkPayload(dataToSink, sink.exportFormat ?? []);
+        await conn.collection(sink.collectionName).insertOne({
           jobId,
           orgId,
           executedAt: new Date(),
-          data: dataToSink,
+          formats,
         });
         await conn.close();
-        jobLogger.info({ sinkType: sink.type, collection: sink.collection }, "Output sunk successfully");
+        jobLogger.info({ sinkType: sink.type, collection: sink.collectionName }, "Output sunk successfully");
       } catch (sinkErr) {
-        jobLogger.error({ err: sinkErr, sinkType: sink.type, collection: sink.collection }, "Sink failed");
+        jobLogger.error({ err: sinkErr, sinkType: sink.type, collection: sink.collectionName }, "Sink failed");
       }
     }
   } catch (err) {
@@ -303,6 +330,21 @@ export const jobProcessor = async (job) => {
         });
       } catch (webhookErr) {
         jobLogger.warn({ err: webhookErr, webhookUrl }, "Webhook failed");
+      }
+    }
+
+    if (notifications?.recipients?.length > 0) {
+      const shouldNotify = status === "success"
+        ? notifications.onSuccess
+        : notifications.onFailure;
+      if (shouldNotify) {
+        await sendJobNotification({
+          jobName:   jobName ?? String(jobId),
+          jobId:     String(jobId),
+          status,
+          durationMs: duration,
+          recipients: notifications.recipients,
+        });
       }
     }
 

@@ -180,7 +180,8 @@ export default function AuditPage() {
         <span className="dep-line">{filtered.length} records</span>
       </div>
 
-      <div className="panel" style={{ overflow: "hidden" }}>
+      <div className="panel">
+        <div className="table-wrap">
         <table className="tbl">
           <thead>
             <tr>
@@ -230,6 +231,7 @@ export default function AuditPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   );

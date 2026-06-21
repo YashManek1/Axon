@@ -80,7 +80,7 @@ export const createJob = async (req, res) => {
     // ─── T2: ENCRYPT sink.uri before saving to MongoDB ───
     const safeSink = sink
       ? encryptSink(sink)
-      : { type: null, uri: null, collection: null };
+      : { type: null, uri: null, collectionName: null };
 
     const newJob = new jobModel({
       userId: userId,
@@ -136,10 +136,17 @@ export const createJob = async (req, res) => {
           // ─── Pass DECRYPTED sink to queue so worker can use it ───
           sink: prepareSinkForQueue(newJob.sink),
           dependsOn: validatedDependencies.dependencies,
+          notifications: newJob.notifications,
+          jobName: newJob.name,
+          executionWindow: newJob.executionWindow,
+          timezone: newJob.timezone,
+          timeout: newJob.timeout,
         },
         {
           repeat: { pattern: schedule },
           jobId: String(newJob._id),
+          attempts: (newJob.retryLimit ?? 0) + 1,
+          backoff: { type: "exponential", delay: 2000 },
         },
       );
       await setJobState(newJob._id, "QUEUED");
@@ -335,10 +342,17 @@ export const updateJob = async (req, res) => {
           // ─── Pass DECRYPTED sink to queue so worker can use it ───
           sink: prepareSinkForQueue(job.sink),
           dependsOn: job.dependsOn || [],
+          notifications: job.notifications,
+          jobName: job.name,
+          executionWindow: job.executionWindow,
+          timezone: job.timezone,
+          timeout: job.timeout,
         },
         {
           repeat: { pattern: job.schedule },
           jobId: jobIdStr,
+          attempts: (job.retryLimit ?? 0) + 1,
+          backoff: { type: "exponential", delay: 2000 },
         },
       );
     }
@@ -425,10 +439,17 @@ export const toggleJobStatus = async (req, res) => {
           // ─── Pass DECRYPTED sink to queue ───
           sink: prepareSinkForQueue(job.sink),
           dependsOn: job.dependsOn || [],
+          notifications: job.notifications,
+          jobName: job.name,
+          executionWindow: job.executionWindow,
+          timezone: job.timezone,
+          timeout: job.timeout,
         },
         {
           repeat: { pattern: job.schedule },
           jobId: jobIdStr,
+          attempts: (job.retryLimit ?? 0) + 1,
+          backoff: { type: "exponential", delay: 2000 },
         },
       );
     } else {
@@ -482,10 +503,17 @@ export const runJobNow = async (req, res) => {
         // ─── Pass DECRYPTED sink to queue ───
         sink: prepareSinkForQueue(job.sink),
         dependsOn: job.dependsOn || [],
+        notifications: job.notifications,
+        jobName: job.name,
+        executionWindow: job.executionWindow,
+        timezone: job.timezone,
+        timeout: job.timeout,
       },
       {
         removeOnComplete: true,
         removeOnFail: true,
+        attempts: (job.retryLimit ?? 0) + 1,
+        backoff: { type: "exponential", delay: 2000 },
       },
     );
     await setJobState(job._id, "QUEUED");

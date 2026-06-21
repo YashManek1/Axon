@@ -6,6 +6,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { toast } from "../../stores/toastStore";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AgentData } from "../../hooks/useDashboardData";
+import { track } from "@vercel/analytics";
 
 function meterClass(pct: number): string {
   if (pct > 90) return "err";
@@ -71,6 +72,7 @@ export default function AgentsPage() {
     try {
       await agentsAPI.register({ name: agentName, hardwareUuid: hwUuid }, orgApiKey);
       toast.success("Agent registered", agentName);
+      track("agent_registered");
       setShowForm(false);
       setAgentName(""); setHwUuid(""); setOrgApiKey("");
       queryClient.invalidateQueries({ queryKey: ["agents"] });
@@ -86,6 +88,7 @@ export default function AgentsPage() {
     try {
       await agentsAPI.decommission(id);
       toast.success("Decommissioned", name);
+      track("agent_decommissioned");
       queryClient.invalidateQueries({ queryKey: ["agents"] });
     } catch {
       toast.error("Failed", "Could not decommission agent");
@@ -121,7 +124,7 @@ export default function AgentsPage() {
             Register a new agent
           </div>
           <form onSubmit={handleRegister}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div className="grid-auto" style={{ marginBottom: 12 }}>
               <div className="field">
                 <label className="label">Agent name</label>
                 <input className="input" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="prod-us-east" required />

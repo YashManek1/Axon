@@ -1,4 +1,4 @@
-﻿import { defineConfig } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
@@ -13,10 +13,17 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/user": "http://localhost:3000",
-      "/jobs": "http://localhost:3000",
-      "/admin": "http://localhost:3000",
+      "/user":   "http://localhost:3000",
+      "/jobs":   "http://localhost:3000",
+      "/admin":  "http://localhost:3000",
       "/agents": "http://localhost:3000",
+      // /audit was previously missing — added to match auditAPI calls
+      "/audit":  "http://localhost:3000",
+      // WebSocket proxy for Socket.IO in dev
+      "/socket.io": {
+        target: "http://localhost:3000",
+        ws: true,
+      },
     },
   },
 });

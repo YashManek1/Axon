@@ -5,7 +5,8 @@ import { validateEnvironment } from "../config/environment.js";
 const validEnvironment = {
   PORT: "3001",
   MONGO_URI: "mongodb://localhost:27017/axon-test",
-  REDIS_URI: "redis://localhost:6379",
+  REDIS_HOST: "localhost",
+  REDIS_PORT: "6379",
   JWT_SECRET: "test-secret-do-not-use-in-production",
   ENCRYPTION_KEY:
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -41,7 +42,9 @@ describe("environment validation", () => {
   it("succeeds with all valid variables", () => {
     const environment = validateEnvironment(validEnvironment);
 
-    expect(environment).toEqual(validEnvironment);
+    // Zod applies defaults for optional fields (e.g. EMAIL_SMTP_PORT).
+    // Compare only the fields we explicitly supplied.
+    expect(environment).toMatchObject(validEnvironment);
     expect(Object.isFrozen(environment)).toBe(true);
   });
 

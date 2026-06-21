@@ -2,7 +2,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import {
   Activity, Server, Play, BookOpen, FileText, Terminal,
-  Search, Bell, Sun, Moon, Menu, LogOut,
+  Search, Bell, Sun, Moon, Menu, LogOut, ShieldCheck,
 } from "lucide-react";
 import { useAuthStore } from "../../stores/authStore";
 import { useThemeStore } from "../../stores/themeStore";
@@ -15,27 +15,38 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
-const navGroups: { label: string | null; items: NavItem[] }[] = [
-  {
-    label: null,
-    items: [{ path: "/dashboard/overview", label: "Overview", icon: <Activity size={16} /> }],
-  },
-  {
-    label: "Fleet",
-    items: [
-      { path: "/dashboard/agents",   label: "Agents",    icon: <Server   size={16} /> },
-      { path: "/dashboard/jobs",     label: "Jobs",      icon: <Play     size={16} /> },
-      { path: "/dashboard/runbooks", label: "Runbooks",  icon: <BookOpen size={16} /> },
-    ],
-  },
-  {
-    label: "Records",
-    items: [
-      { path: "/dashboard/audit", label: "Audit Log", icon: <FileText  size={16} /> },
-      { path: "/dashboard/live",  label: "Live",      icon: <Terminal  size={16} /> },
-    ],
-  },
-];
+function buildNavGroups(isAdmin: boolean): { label: string | null; items: NavItem[] }[] {
+  const groups: { label: string | null; items: NavItem[] }[] = [
+    {
+      label: null,
+      items: [{ path: "/dashboard/overview", label: "Overview", icon: <Activity size={16} /> }],
+    },
+    {
+      label: "Fleet",
+      items: [
+        { path: "/dashboard/agents",   label: "Agents",   icon: <Server   size={16} /> },
+        { path: "/dashboard/jobs",     label: "Jobs",     icon: <Play     size={16} /> },
+        { path: "/dashboard/runbooks", label: "Runbooks", icon: <BookOpen size={16} /> },
+      ],
+    },
+    {
+      label: "Records",
+      items: [
+        { path: "/dashboard/audit", label: "Audit Log", icon: <FileText size={16} /> },
+        { path: "/dashboard/live",  label: "Live",      icon: <Terminal size={16} /> },
+      ],
+    },
+  ];
+
+  if (isAdmin) {
+    groups.push({
+      label: "Admin",
+      items: [{ path: "/dashboard/admin", label: "Analytics", icon: <ShieldCheck size={16} /> }],
+    });
+  }
+
+  return groups;
+}
 
 const pageTitles: Record<string, string> = {
   overview: "Overview",
@@ -44,6 +55,7 @@ const pageTitles: Record<string, string> = {
   runbooks: "Runbooks",
   audit:    "Audit Log",
   live:     "Live",
+  admin:    "Admin Analytics",
 };
 
 export default function DashboardLayout() {
@@ -53,7 +65,8 @@ export default function DashboardLayout() {
   const { theme, toggle }  = useThemeStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const segment   = location.pathname.split("/")[2] || "overview";
+  const segment    = location.pathname.split("/")[2] || "overview";
+  const navGroups  = buildNavGroups(user?.role === "admin");
   const pageTitle = pageTitles[segment] || "Dashboard";
   const initials  = user?.username ? user.username.slice(0, 2).toUpperCase() : "AX";
 

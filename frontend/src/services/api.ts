@@ -9,7 +9,7 @@ export function setAuthNavigationHandler(handler: () => void) {
 }
 
 const api = axios.create({
-  baseURL: "/",
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? "/",
   headers: { "Content-Type": "application/json" },
   withCredentials: true,
 });
@@ -102,11 +102,12 @@ export const agentsAPI = {
 };
 
 export const adminAPI = {
-  health: () => api.get("/admin/health"),
-  jobStats: () => api.get("/admin/job-stats"),
-  userStats: () => api.get("/admin/user-stats"),
-  allJobs: () => api.get("/admin/all-jobs"),
-  allUsers: () => api.get("/admin/all-users"),
+  health:       () => api.get("/admin/health"),
+  jobStats:     () => api.get("/admin/job-stats"),
+  userStats:    () => api.get("/admin/user-stats"),
+  orgAnalytics: () => api.get("/admin/org-analytics"),
+  allJobs:      () => api.get("/admin/all-jobs"),
+  allUsers:     () => api.get("/admin/all-users"),
 };
 
 export default api;

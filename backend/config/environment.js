@@ -6,7 +6,11 @@ dotenv.config();
 const environmentSchema = z.object({
   PORT: z.string().default("3000"),
   MONGO_URI: z.string().min(1, "MONGO_URI is required"),
-  REDIS_URI: z.string().min(1, "REDIS_URI is required"),
+  // Accept either a full REDIS_URI (production) or component vars (dev/RedisLabs)
+  REDIS_URI: z.string().optional(),
+  REDIS_HOST: z.string().optional(),
+  REDIS_PORT: z.string().optional(),
+  REDIS_PASSWORD: z.string().optional(),
   JWT_SECRET: z
     .string()
     .min(32, "JWT_SECRET must be at least 32 characters long"),
@@ -22,6 +26,11 @@ const environmentSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
+  EMAIL_SMTP_HOST: z.string().optional(),
+  EMAIL_SMTP_PORT: z.string().default("587"),
+  EMAIL_SMTP_USER: z.string().optional(),
+  EMAIL_SMTP_PASS: z.string().optional(),
+  EMAIL_FROM:      z.string().optional(),
 });
 
 function formatEnvironmentError(error) {
@@ -42,7 +51,21 @@ export function validateEnvironment(source = process.env) {
     throw new Error(formatEnvironmentError(result.error));
   }
 
-  return Object.freeze(result.data);
+  const data = result.data;
+
+  // Resolve REDIS_URI: use it directly if provided, otherwise build from components.
+  let redisUri = data.REDIS_URI;
+  if (!redisUri) {
+    if (!data.REDIS_HOST || !data.REDIS_PORT) {
+      throw new Error(
+        "Invalid environment configuration: provide REDIS_URI or both REDIS_HOST and REDIS_PORT",
+      );
+    }
+    const auth = data.REDIS_PASSWORD ? `:${data.REDIS_PASSWORD}@` : "";
+    redisUri = `redis://${auth}${data.REDIS_HOST}:${data.REDIS_PORT}`;
+  }
+
+  return Object.freeze({ ...data, REDIS_URI: redisUri });
 }
 
 let environment;
