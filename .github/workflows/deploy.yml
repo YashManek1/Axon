@@ -1,0 +1,33 @@
+name: Deploy to Azure
+
+# Triggered after CI completes on main (guarantees image is already pushed before we update
+# the Container App). workflow_dispatch allows ad-hoc re-deploys of whatever :latest is.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # On workflow_run: only proceed when CI succeeded.
+    # On workflow_dispatch: always proceed (manual operator decision).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Update Container App to latest backend image
+        run: |
+          az containerapp update \
+            --name axon-backend \
+            --resource-group axon-prod \
+            --image ${{ secrets.REGISTRY }}/axon-backend:latest

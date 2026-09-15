@@ -2,147 +2,144 @@ import { EventEmitter } from "events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJobExecutionRouter } from "../services/jobExecutionRouter.js";
 
+const ENVELOPE = {
+  protocolVersion: 2,
+  orgId: "org-1",
+  jobId: "job-1",
+  targetAgentId: "agent-1",
+  runId: "run-1",
+  targetExecutionId: "target-execution-1",
+  attemptId: "attempt-1",
+  operationId: "operation-1",
+  actionVersion: "a".repeat(64),
+  command: "echo ok",
+  allowedCommands: ["echo hello"],
+  timeoutMs: 1_000,
+  startBefore: 2_000_000_000_000,
+  maxOutputBytes: 65_536,
+};
+
 class MockSocket extends EventEmitter {
-  emit(eventName, payload) {
-    if (eventName === "execute_command") {
-      this.lastCommand = payload;
+  constructor(agentId, orgId) {
+    super();
+    this.agentId = agentId;
+    this.orgId = orgId;
+    this.clientType = "agent";
+    this.authGeneration = 0;
+    this.protocolVersions = [2];
+    this.commands = [];
+  }
+  emit(name, payload) {
+    if (name === "execute_command") {
+      this.commands.push(payload);
       return true;
     }
-
-    return super.emit(eventName, payload);
+    return super.emit(name, payload);
   }
 }
 
-function createRouterWithSocket(agentId = "agent-1") {
-  const socket = new MockSocket();
-  const io = {
-    sockets: {
-      sockets: new Map([[agentId, socket]]),
-    },
-  };
-
+function correlated(extra = {}) {
   return {
-    socket,
-    router: createJobExecutionRouter(io),
+    protocolVersion: 2,
+    jobId: ENVELOPE.jobId,
+    targetAgentId: ENVELOPE.targetAgentId,
+    runId: ENVELOPE.runId,
+    targetExecutionId: ENVELOPE.targetExecutionId,
+    attemptId: ENVELOPE.attemptId,
+    operationId: ENVELOPE.operationId,
+    ...extra,
   };
 }
 
-describe("jobExecutionRouter", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
+describe("protocol-v2 job execution router", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("dispatchCommandToAgent resolves when matching command_result is emitted", async () => {
-    const { router, socket } = createRouterWithSocket();
-
-    const promise = router.dispatchCommandToAgent(
-      "job-1",
-      "agent-1",
-      "echo ok",
-      1000,
-    );
-
-    socket.emit("command_result", {
-      jobId: "job-1",
-      stdout: "ok",
-      stderr: "",
-      exitCode: 0,
-    });
-
-    await expect(promise).resolves.toEqual({
-      jobId: "job-1",
-      stdout: "ok",
-      stderr: "",
-      exitCode: 0,
-    });
-  });
-
-  it("dispatchCommandToAgent ignores command_result with a different jobId", async () => {
-    const { router, socket } = createRouterWithSocket();
-    let settled = false;
-
-    const promise = router.dispatchCommandToAgent(
-      "job-1",
-      "agent-1",
-      "echo ok",
-      1000,
-    );
-    promise
-      .then(() => {
-        settled = true;
-      })
-      .catch(() => {
-        settled = true;
-      });
-
-    socket.emit("command_result", {
-      jobId: "job-2",
-      stdout: "wrong job",
-    });
-
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
-    const expectation = expect(promise).rejects.toMatchObject({
-      code: "EXECUTION_TIMEOUT",
-    });
-    await vi.advanceTimersByTimeAsync(1000);
-    await expectation;
-  });
-
-  it("dispatchCommandToAgent rejects when the socket disconnects", async () => {
-    const { router, socket } = createRouterWithSocket();
-
-    const promise = router.dispatchCommandToAgent(
-      "job-1",
-      "agent-1",
-      "echo ok",
-      1000,
-    );
-
-    socket.emit("disconnect");
-
-    await expect(promise).rejects.toMatchObject({
-      code: "AGENT_DISCONNECTED",
-      message: "AGENT_DISCONNECTED",
-    });
-  });
-
-  it("dispatchCommandToAgent rejects on timeout and removes listeners", async () => {
-    const { router, socket } = createRouterWithSocket();
-
-    const promise = router.dispatchCommandToAgent(
-      "job-1",
-      "agent-1",
-      "echo ok",
-      1000,
-    );
-
-    const expectation = expect(promise).rejects.toMatchObject({
-      code: "EXECUTION_TIMEOUT",
-      message: "EXECUTION_TIMEOUT",
-    });
-    await vi.advanceTimersByTimeAsync(1000);
-
-    await expectation;
-    expect(socket.listenerCount("command_result")).toBe(0);
-  });
-
-  it("dispatchCommandToAgent rejects when no socket is found", async () => {
+  it("emits only to the exact selected socket and accepts fully correlated result", async () => {
+    const selected = new MockSocket("agent-1", "org-1");
+    const other = new MockSocket("agent-2", "org-1");
     const router = createJobExecutionRouter({
-      sockets: {
-        sockets: new Map(),
-      },
+      sockets: { sockets: new Map([["socket-1", selected], ["socket-2", other]]) },
     });
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "socket-1", 0);
+    selected.emit("job_ack", correlated());
+    selected.emit("command_result", correlated({ outcome: "completed", exitCode: 0 }));
+    await expect(dispatch.resultPromise).resolves.toMatchObject({ exitCode: 0 });
+    expect(selected.commands).toHaveLength(1);
+    expect(other.commands).toHaveLength(0);
+  });
 
-    await expect(
-      router.dispatchCommandToAgent("job-1", "missing-agent", "echo ok"),
-    ).rejects.toMatchObject({
-      code: "AGENT_NOT_CONNECTED",
+  it("fails closed when socket ownership changed and never falls back", async () => {
+    const stale = new MockSocket("agent-2", "org-1");
+    const other = new MockSocket("agent-1", "org-1");
+    const router = createJobExecutionRouter({
+      sockets: { sockets: new Map([["stale", stale], ["other", other]]) },
     });
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "stale", 0);
+    await expect(dispatch.ackPromise).rejects.toMatchObject({
+      code: "TARGET_SOCKET_OWNERSHIP_CHANGED",
+    });
+    await dispatch.resultPromise.catch(() => {});
+    expect(stale.commands).toHaveLength(0);
+    expect(other.commands).toHaveLength(0);
+  });
+
+  it("ignores a correlation mismatch", async () => {
+    const selected = new MockSocket("agent-1", "org-1");
+    const router = createJobExecutionRouter({
+      sockets: { sockets: new Map([["socket-1", selected]]) },
+    });
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "socket-1", 0);
+    const ack = dispatch.ackPromise.catch((error) => error);
+    selected.emit("command_result", correlated({ attemptId: "wrong", exitCode: 0 }));
+    const result = expect(dispatch.resultPromise).rejects.toMatchObject({
+      code: "DISPATCH_OUTCOME_UNKNOWN",
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await result;
+    await ack;
+  });
+
+  it("marks lost result unknown after a valid acknowledgment", async () => {
+    const selected = new MockSocket("agent-1", "org-1");
+    const router = createJobExecutionRouter({
+      sockets: { sockets: new Map([["socket-1", selected]]) },
+    });
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "socket-1", 0);
+    selected.emit("job_ack", correlated());
+    await dispatch.ackPromise;
+    const result = expect(dispatch.resultPromise).rejects.toMatchObject({
+      code: "EXECUTION_RESULT_UNKNOWN",
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await result;
+  });
+
+  it("rejects a legacy-capability socket without emitting", async () => {
+    const selected = new MockSocket("agent-1", "org-1");
+    selected.protocolVersions = [];
+    const router = createJobExecutionRouter({
+      sockets: { sockets: new Map([["socket-1", selected]]) },
+    });
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "socket-1", 0);
+    await expect(dispatch.ackPromise).rejects.toMatchObject({
+      code: "AGENT_PROTOCOL_UNSUPPORTED",
+    });
+    await dispatch.resultPromise.catch(() => {});
+    expect(selected.commands).toHaveLength(0);
+  });
+
+  it("rejects a socket authenticated under an older credential generation", async () => {
+    const selected = new MockSocket("agent-1", "org-1");
+    selected.authGeneration = 1;
+    const router = createJobExecutionRouter({
+      sockets: { sockets: new Map([["socket-1", selected]]) },
+    });
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "socket-1", 2);
+    await expect(dispatch.ackPromise).rejects.toMatchObject({
+      code: "TARGET_SOCKET_OWNERSHIP_CHANGED",
+    });
+    await dispatch.resultPromise.catch(() => {});
+    expect(selected.commands).toHaveLength(0);
   });
 });

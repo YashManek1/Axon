@@ -6,13 +6,15 @@ services:
       - "27017:27017"
     volumes:
       - mongodb-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: axon_dev
+      MONGO_INITDB_ROOT_PASSWORD: axon_dev_secret
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 20s
-    # Development only: MongoDB auth is disabled here. Production must enable auth.
 
   redis:
     image: redis:7-alpine
@@ -38,8 +40,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3000}
-      MONGO_URI: ${MONGO_URI:-mongodb://mongodb:27017/axon}
+      MONGO_URI: ${MONGO_URI:-mongodb://axon_dev:axon_dev_secret@mongodb:27017/axon?authSource=admin}
       REDIS_URI: ${REDIS_URI:-redis://redis:6379}
+      # No default: a missing token must fail startup loudly rather than fall back
+      # to a known literal that could reach a production path.
+      PROMETHEUS_BEARER_TOKEN: ${PROMETHEUS_BEARER_TOKEN:?PROMETHEUS_BEARER_TOKEN must be set (see .env.example)}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -88,6 +93,48 @@ services:
       timeout: 5s
       retries: 5
 
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    restart: unless-stopped
+    ports:
+      # Loopback only: Prometheus holds operational data and has no auth of its own.
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Scrape credential is mounted, never committed. Create it before first run:
+      #   echo -n "$PROMETHEUS_BEARER_TOKEN" > observability/prometheus/token
+      # It must match PROMETHEUS_BEARER_TOKEN in the backend service. Gitignored.
+      - ./observability/prometheus/token:/etc/prometheus/token:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    restart: unless-stopped
+    ports:
+      # Bound to loopback: Grafana is a dev-only surface and should not be
+      # reachable from other hosts on the network.
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set (see .env.example)}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+
 volumes:
   mongodb-data:
   redis-data:
+  prometheus-data:
+  grafana-data:

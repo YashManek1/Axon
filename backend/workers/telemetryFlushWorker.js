@@ -14,6 +14,13 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function generationFilter(tokenVersion) {
+  const version = Number(tokenVersion ?? 0);
+  return version === 0
+    ? { $or: [{ tokenVersion: 0 }, { tokenVersion: { $exists: false } }] }
+    : { tokenVersion: version };
+}
+
 export async function flushAgentTelemetry() {
   const startedAt = Date.now();
 
@@ -24,10 +31,15 @@ export async function flushAgentTelemetry() {
     );
 
     const operations = telemetryEntries
-      .filter(([, telemetry]) => telemetry)
+      .filter(([, telemetry]) => telemetry?.socketId)
       .map(([agentId, telemetry]) => ({
         updateOne: {
-          filter: { _id: agentId },
+          filter: {
+            _id: agentId,
+            decommissionedAt: null,
+            socketId: telemetry.socketId,
+            ...generationFilter(telemetry.tokenVersion),
+          },
           update: {
             $set: {
               status: telemetry.status === "ONLINE" ? "online" : "offline",

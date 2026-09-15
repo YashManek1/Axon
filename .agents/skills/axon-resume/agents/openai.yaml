@@ -1,0 +1,4 @@
+interface:
+  display_name: "Resume Axon"
+  short_description: "Recover Axon state and verified next actions"
+  default_prompt: "Use $axon-resume to recover the current milestone and continue the authorized work."

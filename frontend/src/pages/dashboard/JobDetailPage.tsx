@@ -15,6 +15,13 @@ interface AuditRecord {
   exitCode?: number;
   stderrSummary?: string;
   command?: string;
+  runId?: string | null;
+  targetExecutionId?: string | null;
+  attemptId?: string | null;
+  operationId?: string | null;
+  targetAgentId?: string | null;
+  reasonCode?: string | null;
+  outcome?: string | null;
 }
 
 const PAGE_SIZE = 10;
@@ -22,7 +29,8 @@ const PAGE_SIZE = 10;
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     COMPLETED: "completed", FAILED: "failed", TIMEOUT: "timeout",
-    PENDING: "pending", DISPATCHED: "dispatched",
+    PENDING: "pending", DISPATCHED: "dispatched", UNKNOWN: "pending",
+    completed: "completed", rejected: "failed", timed_out: "timeout", cancelled: "cancelled", unknown: "pending",
   };
   return <span className={"badge " + (map[status] || "cancelled")}>{status}</span>;
 }
@@ -42,6 +50,7 @@ export default function JobDetailPage() {
   const queryClient     = useQueryClient();
   const [page, setPage] = useState(0);
   const [running, setRunning] = useState(false);
+  const [launchFeedback, setLaunchFeedback] = useState<string | null>(null);
 
   const jobQuery = useQuery<Job>({
     queryKey: ["jobs", jobId],
@@ -67,12 +76,17 @@ export default function JobDetailPage() {
     if (!jobId) return;
     setRunning(true);
     try {
-      await jobsAPI.runNow(jobId);
-      toast.success("Dispatched", job?.name ?? jobId);
+      const response = await jobsAPI.runNow(jobId);
+      const data = response.data as { runId?: string; status?: string; message?: string };
+      const message = data.runId && data.status ? `Run ${data.runId}: ${data.status}` : data.message ?? "Job triggered manually";
+      setLaunchFeedback(message);
+      toast.success("Launch accepted", message);
       queryClient.invalidateQueries({ queryKey: ["audit", "job", jobId] });
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message || "Dispatch failed";
-      toast.error("Failed", msg);
+      const data = (err as { response?: { data?: { code?: string; message?: string } } }).response?.data;
+      const msg = data?.code && data.message ? `${data.code}: ${data.message}` : data?.message || "Dispatch failed";
+      setLaunchFeedback(msg);
+      toast.error("Launch rejected", msg);
     } finally {
       setRunning(false);
     }
@@ -80,14 +94,14 @@ export default function JobDetailPage() {
 
   if (jobQuery.isLoading) {
     return (
-      <div className="panel empty"><Loader2 size={24} style={{ animation: "spin 0.8s linear infinite", color: "var(--text-faint)" }} /></div>
+      <div className="bg-surface border border-edge rounded-md p-8 flex items-center justify-center"><Loader2 size={24} style={{ animation: "spin 0.8s linear infinite", color: "var(--muted)" }} /></div>
     );
   }
   if (!job) {
     return (
-      <div className="panel empty">
-        <h3>Job not found</h3>
-        <div className="actions"><button className="btn btn-ghost btn-sm" onClick={() => navigate("/dashboard/jobs")}><ArrowLeft size={14} /> Back to jobs</button></div>
+      <div className="bg-surface border border-edge rounded-md p-8 text-center">
+        <h3 className="text-lg font-bold text-ink">Job not found</h3>
+        <div className="flex items-center justify-center mt-4"><button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm border-1 border-edge text-muted transition-all hover:text-ink hover:bg-surface-2" onClick={() => navigate("/dashboard/jobs")}><ArrowLeft size={14} /> Back to jobs</button></div>
       </div>
     );
   }
@@ -96,39 +110,43 @@ export default function JobDetailPage() {
 
   return (
     <>
-      <div className="page-head">
+      <div className="flex items-start justify-between gap-8 mb-8">
         <div>
-          <button className="btn btn-ghost btn-sm" onClick={() => navigate("/dashboard/jobs")} style={{ marginBottom: 8 }}>
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm text-muted transition-all hover:text-ink hover:bg-surface-2 mb-2" onClick={() => navigate("/dashboard/jobs")}>
             <ArrowLeft size={14} /> Jobs
           </button>
-          <h1>{job.name}</h1>
-          <p>Job ID: <span className="mono">{job._id}</span></p>
+          <h1 className="text-2xl font-bold text-ink">{job.name}</h1>
+          <p className="text-muted mt-2">Job ID: <span className="font-mono">{job._id}</span></p>
         </div>
-        <div className="actions">
-          <span className={"badge " + (job.enabled || job.status === "active" ? "active" : "paused")}>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm ${
+            job.enabled || job.status === "active" ? "text-success bg-green-500/10" : "text-warning bg-amber-500/10"
+          }`}>
             {job.enabled ? "active" : "paused"}
           </span>
-          <button className="btn btn-primary btn-sm" disabled={running} onClick={runNow}>
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed" disabled={running} onClick={runNow}>
             {running ? <Loader2 size={14} style={{ animation: "spin 0.8s linear infinite" }} /> : <Play size={14} />}
             Run now
           </button>
         </div>
       </div>
 
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel-head"><span className="panel-title">Job configuration</span></div>
-        <div className="panel-pad grid-4">
+      <div className="bg-surface border border-edge rounded-md overflow-hidden mb-4">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+          <span className="font-ui font-bold text-sm text-ink">Job configuration</span>
+        </div>
+        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
           <DetailRow label="Type"     value={job.type} />
-          <DetailRow label="Schedule" value={job.schedule} />
-          <DetailRow label="Retries"  value={String(job.retryLimit)} />
+          <DetailRow label="Schedule" value={job.type === "shell" ? "Manual only" : job.schedule} />
+          {job.type === "http" && <DetailRow label="Retries" value={String(job.retryLimit)} />}
           <DetailRow label="Created by" value={createdBy} />
           {job.type === "shell" && Boolean(payload?.command) && (
-            <div style={{ gridColumn: "1 / -1" }}>
+            <div className="sm:col-span-2 xl:col-span-4">
               <DetailRow label="Command" value={String(payload.command)} />
             </div>
           )}
           {job.type === "http" && Boolean(payload?.url) && (
-            <div style={{ gridColumn: "1 / -1", display: "flex", gap: 20, flexWrap: "wrap" }}>
+            <div className="sm:col-span-2 xl:col-span-4 flex gap-5 flex-wrap">
               <DetailRow label="URL"    value={String(payload.url)} />
               <DetailRow label="Method" value={String(payload.method || "GET")} />
             </div>
@@ -136,45 +154,51 @@ export default function JobDetailPage() {
         </div>
       </div>
 
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">Execution history</span>
-          <span className="grow" />
-          <span style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)" }}>Page {page + 1}</span>
+      {launchFeedback && <div className="mb-4 rounded-sm border border-edge p-3 text-sm text-ink-2" role="status">{launchFeedback}</div>}
+
+      <div className="bg-surface border border-edge rounded-md overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+          <span className="font-ui font-bold text-sm text-ink">Execution history</span>
+          <span className="flex-1" />
+          <span className="text-xs text-muted">Page {page + 1}</span>
         </div>
-        <div className="table-wrap">
-          <table className="tbl">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th>Started</th>
-                <th>Status</th>
-                <th>Duration</th>
-                <th>Exit</th>
-                <th>Error</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Started</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Status</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Duration</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Exit</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Error</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Run evidence</th>
               </tr>
             </thead>
             <tbody>
               {historyQuery.isLoading ? (
-                <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>Loading...</td></tr>
+                <tr><td colSpan={6} className="text-center text-muted h-16">Loading...</td></tr>
               ) : history.length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>No executions yet</td></tr>
+                <tr><td colSpan={6} className="text-center text-muted h-16">No executions yet</td></tr>
               ) : (
                 history.map((run) => (
                   <tr key={run._id}>
-                    <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{new Date(run.startedAt).toLocaleString()}</td>
-                    <td>{statusBadge(run.status)}</td>
-                    <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{run.durationMs ? (run.durationMs / 1000).toFixed(1) + "s" : "-"}</td>
-                    <td>
+                    <td className="font-mono text-xs whitespace-nowrap px-3.5 py-2.5 border-b border-edge text-ink-2 hover:bg-surface-2">{new Date(run.startedAt).toLocaleString()}</td>
+                    <td className="px-3.5 py-2.5 border-b border-edge text-ink-2 hover:bg-surface-2">{statusBadge(run.outcome ?? run.status)}</td>
+                    <td className="font-mono text-xs whitespace-nowrap px-3.5 py-2.5 border-b border-edge text-ink-2 hover:bg-surface-2">{run.durationMs ? (run.durationMs / 1000).toFixed(1) + "s" : "-"}</td>
+                    <td className="px-3.5 py-2.5 border-b border-edge text-ink-2 hover:bg-surface-2">
                       {run.exitCode == null ? (
-                        <span className="mono" style={{ color: "var(--text-faint)" }}>-</span>
+                        <span className="font-mono text-muted">-</span>
                       ) : run.exitCode === 0 ? (
-                        <span style={{ color: "var(--ok)" }}><CheckCircle size={14} /></span>
+                        <span className="text-success"><CheckCircle size={14} /></span>
                       ) : (
-                        <span style={{ color: "var(--err)" }}><XCircle size={14} /></span>
+                        <span className="text-danger"><XCircle size={14} /></span>
                       )}
                     </td>
-                    <td style={{ fontSize: "var(--t-xs)", color: "var(--err)", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {run.stderrSummary || "-"}
+                    <td className="text-xs text-danger max-w-60 overflow-hidden text-ellipsis px-3.5 py-2.5 border-b border-edge hover:bg-surface-2">
+                      {run.reasonCode || run.stderrSummary || "-"}
+                    </td>
+                    <td className="text-xs font-mono text-muted px-3.5 py-2.5 border-b border-edge hover:bg-surface-2">
+                      {[run.runId, run.targetAgentId, run.targetExecutionId, run.attemptId, run.operationId].filter(Boolean).join(" · ") || "-"}
                     </td>
                   </tr>
                 ))
@@ -182,9 +206,9 @@ export default function JobDetailPage() {
             </tbody>
           </table>
         </div>
-        <div className="row gap-2" style={{ padding: "12px 16px", justifyContent: "flex-end" }}>
-          <button className="btn btn-ghost btn-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>&larr; Prev</button>
-          <button className="btn btn-ghost btn-sm" disabled={history.length < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Next &rarr;</button>
+        <div className="flex gap-1 px-4 py-3 justify-end">
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm border border-edge text-muted transition-all hover:text-ink hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>&larr; Prev</button>
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm border border-edge text-muted transition-all hover:text-ink hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={history.length < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Next &rarr;</button>
         </div>
       </div>
     </>

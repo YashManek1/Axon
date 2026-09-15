@@ -10,6 +10,7 @@ const validEnvironment = {
   JWT_SECRET: "test-secret-do-not-use-in-production",
   ENCRYPTION_KEY:
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  DISPATCH_SIGNING_KEY: "deadbeefdeadbeefdeadbeefdeadbeef",
   LOG_LEVEL: "info",
   NODE_ENV: "test",
 };
@@ -28,6 +29,15 @@ describe("environment validation", () => {
         JWT_SECRET: "too-short",
       }),
     ).toThrow(/JWT_SECRET/);
+  });
+
+  it("throws when DISPATCH_SIGNING_KEY is too short", () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        DISPATCH_SIGNING_KEY: "deadbeef",
+      }),
+    ).toThrow(/DISPATCH_SIGNING_KEY/);
   });
 
   it("throws when ENCRYPTION_KEY is not 64 hex chars", () => {

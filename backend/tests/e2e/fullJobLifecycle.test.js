@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import bcrypt from "bcrypt";
 import cookieParser from "cookie-parser";
 import express from "express";
@@ -12,9 +13,14 @@ let scheduledAdds;
 let modules;
 
 class MockSocket extends EventEmitter {
-  constructor() {
+  constructor(agentId, orgId) {
     super();
     this.emittedCommands = [];
+    this.agentId = String(agentId);
+    this.orgId = String(orgId);
+    this.clientType = "agent";
+    this.authGeneration = 0;
+    this.protocolVersions = [2];
   }
 
   emit(eventName, payload) {
@@ -106,7 +112,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   immediateAdds.length = 0;
   scheduledAdds.length = 0;
-  await redisConnection.flushall();
+  await redisConnection.flushdb();
 });
 
 async function createUserAndOrg(prefix) {
@@ -118,9 +124,21 @@ async function createUserAndOrg(prefix) {
     orgDescription: "Lifecycle test org",
   });
 
-  const apiKey = `${prefix}-org-api-key`;
+  // Org API keys use the wire format axk_<keyId>_<secret>; only the secret is
+  // hashed, and lookup is by the indexed keyId. Seeding the old flat
+  // `apiKeyHash` field no longer resolves an org, so registration returns null.
+  const keyId = crypto.randomBytes(8).toString("hex");
+  const secret = crypto.randomBytes(32).toString("base64url");
+  const apiKey = `axk_${keyId}_${secret}`;
   await modules.Organization.findByIdAndUpdate(response.body.user.orgId, {
-    apiKeyHash: await bcrypt.hash(apiKey, 10),
+    apiKeys: [
+      {
+        keyId,
+        hash: await bcrypt.hash(secret, 10),
+        label: `${prefix} lifecycle key`,
+        createdAt: new Date(),
+      },
+    ],
   });
 
   return {
@@ -139,6 +157,7 @@ async function registerAgent({ token, orgApiKey }, socketId = "agent-socket-1") 
   await modules.Agent.findByIdAndUpdate(response.body.agentId, {
     status: "online",
     socketId,
+    allowedCommands: ["echo ok", "sleep 60"],
   });
   await modules.telemetryBuffer.recordHeartbeat(response.body.agentId, {
     os: "linux",
@@ -167,8 +186,9 @@ async function createShellJob(token, overrides = {}) {
       type: "shell",
       schedule: "* * * * *",
       payload: { command: overrides.command || "echo ok" },
-      enabled: overrides.enabled ?? true,
+      enabled: false,
       dependsOn: overrides.dependsOn || [],
+      targetAgentId: overrides.targetAgentId,
     });
 
   expect(response.status).toBe(201);
@@ -197,23 +217,26 @@ async function waitForSocketCommand(socket) {
 }
 
 describe("full job lifecycle e2e", () => {
-  it("A shell job is scheduled, dispatched to an agent, and produces an audit record", async () => {
+  it("A targeted manual shell run is dispatched and produces an audit record", async () => {
     const session = await createUserAndOrg("lifecycle");
-    await registerAgent(session);
+    const registered = await registerAgent(session);
 
-    const socket = new MockSocket();
+    const socket = new MockSocket(registered.agentId, session.user.orgId);
     modules.worker.configureJobWorker({
       sockets: { sockets: new Map([["agent-socket-1", socket]]) },
     });
 
-    const job = await createShellJob(session.token);
-    await expect(modules.dagStateManager.getJobState(job._id)).resolves.toBe("QUEUED");
+    const job = await createShellJob(session.token, {
+      targetAgentId: registered.agentId,
+    });
+    expect(scheduledAdds).toHaveLength(0);
 
     const triggerResponse = await request(app)
       .post(`/jobs/runJobNow/${job._id}`)
       .set("Authorization", auth(session.token));
 
     expect(triggerResponse.status).toBe(200);
+    expect(triggerResponse.body.runId).toEqual(expect.any(String));
 
     const workerJob = latestImmediateJob();
     let continueAfterPending;
@@ -238,11 +261,32 @@ describe("full job lifecycle e2e", () => {
       expect(dispatchedAudit?.status).toBe("DISPATCHED");
     });
 
-    socket.emit("command_result", {
+    const correlation = {
+      protocolVersion: command.protocolVersion,
       jobId: command.jobId,
+      targetAgentId: command.targetAgentId,
+      runId: command.runId,
+      targetExecutionId: command.targetExecutionId,
+      attemptId: command.attemptId,
+      operationId: command.operationId,
+    };
+    socket.emit("job_ack", correlation);
+
+    await vi.waitFor(async () => {
+      const ackedAudit = await modules.AuditLog.findOne({ jobId: job._id });
+      expect(ackedAudit?.status).toBe("DISPATCHED_ACKED");
+    });
+
+    socket.emit("command_result", {
+      ...correlation,
+      outcome: "completed",
       stdout: "ok\n",
       stderr: "",
       exitCode: 0,
+      reasonCode: null,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      durationMs: 10,
     });
 
     await expect(processorPromise).resolves.toMatchObject({
@@ -271,16 +315,20 @@ describe("full job lifecycle e2e", () => {
 
   it("A job with unmet dependencies does not execute", async () => {
     const session = await createUserAndOrg("deps");
-    await registerAgent(session, "deps-socket");
-    const socket = new MockSocket();
+    const registered = await registerAgent(session, "deps-socket");
+    const socket = new MockSocket(registered.agentId, session.user.orgId);
     modules.worker.configureJobWorker({
       sockets: { sockets: new Map([["deps-socket", socket]]) },
     });
 
-    const jobA = await createShellJob(session.token, { name: "job-a" });
+    const jobA = await createShellJob(session.token, {
+      name: "job-a",
+      targetAgentId: registered.agentId,
+    });
     const jobB = await createShellJob(session.token, {
       name: "job-b",
       dependsOn: [jobA._id],
+      targetAgentId: registered.agentId,
     });
 
     await modules.dagStateManager.setJobState(jobA._id, "FAILED");
@@ -289,12 +337,9 @@ describe("full job lifecycle e2e", () => {
       .post(`/jobs/runJobNow/${jobB._id}`)
       .set("Authorization", auth(session.token));
 
-    expect(triggerResponse.status).toBe(200);
-    await modules.worker.jobProcessor(latestImmediateJob());
-
-    const audit = await modules.AuditLog.findOne({ jobId: jobB._id });
-    expect(audit.status).toBe("FAILED");
-    expect(audit.stderrSummary).toContain("Dependencies not met");
+    expect(triggerResponse.status).toBe(409);
+    expect(triggerResponse.body.code).toBe("SHELL_DEPENDENCIES_UNSUPPORTED");
+    expect(immediateAdds).toHaveLength(0);
     expect(socket.emittedCommands).toHaveLength(0);
   });
 

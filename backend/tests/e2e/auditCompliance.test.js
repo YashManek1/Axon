@@ -2,21 +2,39 @@ import cookieParser from "cookie-parser";
 import express from "express";
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import AuditLog from "../../models/auditLog.js";
 import Job from "../../models/job.js";
 import Organization from "../../models/organization.js";
 import User from "../../models/user.js";
 import { requestId } from "../../middleware/requestId.js";
-import auditRoutes from "../../routes/auditR.js";
-import { createAuditRecord, updateAuditRecord } from "../../services/auditService.js";
+import { signSessionToken } from "../../controllers/userC.js";
 
-const app = express();
+let app;
+let createAuditRecord;
+let updateAuditRecord;
+let mockRedis;
 
-app.use(express.json());
-app.use(cookieParser());
-app.use(requestId);
-app.use("/audit", auditRoutes);
+beforeAll(async () => {
+  const { default: Redis } = await import("ioredis-mock");
+  mockRedis = new Redis();
+
+  vi.doMock("../../config/queue.js", () => ({ redisConnection: mockRedis }));
+
+  const [routesModule, svcModule] = await Promise.all([
+    import("../../routes/auditR.js"),
+    import("../../services/auditService.js"),
+  ]);
+
+  createAuditRecord = svcModule.createAuditRecord;
+  updateAuditRecord = svcModule.updateAuditRecord;
+
+  app = express();
+  app.use(express.json());
+  app.use(cookieParser());
+  app.use(requestId);
+  app.use("/audit", routesModule.default);
+});
 
 let orgA;
 let orgB;
@@ -49,15 +67,7 @@ async function createOrgUserJob(prefix) {
 }
 
 function authHeader(user, org) {
-  return `Bearer ${jwt.sign(
-    {
-      id: user._id,
-      orgId: org._id,
-      username: user.username,
-      role: "user",
-    },
-    process.env.JWT_SECRET,
-  )}`;
+  return `Bearer ${signSessionToken(user)}`;
 }
 
 function auditData(job = jobA, org = orgA, user = userA) {
@@ -76,6 +86,8 @@ function auditData(job = jobA, org = orgA, user = userA) {
 }
 
 beforeEach(async () => {
+  await mockRedis.flushall();
+
   const fixtureA = await createOrgUserJob("audit-compliance-a");
   const fixtureB = await createOrgUserJob("audit-compliance-b");
 
@@ -123,8 +135,8 @@ describe("audit compliance e2e", () => {
       .get(`/audit/job/${jobB._id}`)
       .set("Authorization", authHeader(userA, orgA));
 
-    expect(otherOrgJobResponse.status).toBe(200);
-    expect(otherOrgJobResponse.body).toEqual([]);
+    expect(otherOrgJobResponse.status).toBe(404);
+    expect(JSON.stringify(otherOrgJobResponse.body)).not.toContain(String(orgB._id));
 
     const exportResponse = await request(app)
       .get("/audit/export")

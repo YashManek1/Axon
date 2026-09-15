@@ -40,6 +40,19 @@ const AgentSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    tokenIssuedAt: {
+      type: Date,
+      default: null,
+    },
+    tokenExpiry: {
+      type: Date,
+      default: null,
+    },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     status: {
       type: String,
       enum: ["online", "offline", "busy"],
@@ -60,6 +73,17 @@ const AgentSchema = new mongoose.Schema(
       cpuLoad: Number, 
       ramTotal: Number, 
       ramUsed: Number, 
+    },
+    allowedCommands: {
+      type: [String],
+      default: [],
+    },
+    allowedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    allowedJobs: [{ type: mongoose.Schema.Types.ObjectId, ref: "Job" }],
+    sandboxMode: {
+      type: String,
+      enum: ["none", "namespace", "docker"],
+      default: "none",
     },
   },
   { timestamps: true },

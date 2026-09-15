@@ -100,12 +100,34 @@ describe("ActiveJobQueue", () => {
     );
 
     renderPage();
-    const button = screen.getByTitle("Run now");
+    const button = screen.getByRole("button", { name: "Run now" });
     await userEvent.click(button);
 
     expect(button).toBeDisabled();
     resolveRunNow();
     await waitFor(() => expect(button).not.toBeDisabled());
+  });
+
+  it("shows the accepted shell run ID and status returned by the API", async () => {
+    mockedUseJobs.mockReturnValue({ data: [job(1)], isLoading: false, isError: false } as never);
+    mockedJobsAPI.runNow.mockResolvedValue({ data: { runId: "run-42", status: "QUEUED" } } as never);
+
+    renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Run now" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Run run-42: QUEUED");
+  });
+
+  it("shows the API rejection rather than claiming a launch", async () => {
+    mockedUseJobs.mockReturnValue({ data: [job(1)], isLoading: false, isError: false } as never);
+    mockedJobsAPI.runNow.mockRejectedValue({
+      response: { data: { code: "TARGET_AGENT_OFFLINE", message: "The selected agent is offline; no substitute target was used" } },
+    });
+
+    renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Run now" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("TARGET_AGENT_OFFLINE: The selected agent is offline; no substitute target was used");
   });
 
   it("clicking Delete opens the confirm dialog", async () => {
@@ -115,7 +137,7 @@ describe("ActiveJobQueue", () => {
     } as never);
 
     renderPage();
-    await userEvent.click(screen.getByTitle("Delete"));
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(screen.getByText("Delete Job")).toBeInTheDocument();
     expect(

@@ -8,8 +8,13 @@ const UserSchema = new mongoose.Schema({
     trim: true,
   },
   email: { type: String, required: true, unique: true, trim: true },
-  password: { type: String, required: true },
-  role: { type: String, enum: ["user", "admin"], default: "user" },
+  password: { type: String, required: true, select: false },
+  role: {
+    type: String,
+    // "user" kept for backward compat with existing documents/JWTs; maps to "operator" in authResource
+    enum: ["admin", "operator", "viewer", "user"],
+    default: "operator",
+  },
   orgId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Organization",

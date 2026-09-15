@@ -32,6 +32,7 @@ export function useAgentSocket() {
   }, []);
 
   useEffect(() => {
+    const subscriptions = subscriptionsRef.current;
     const socket = io(import.meta.env.VITE_SOCKET_URL ?? "/", {
       withCredentials: true,
       transports: ["websocket", "polling"],
@@ -42,7 +43,7 @@ export function useAgentSocket() {
     const handleConnect = () => {
       setLoading(false);
       setError(null);
-      subscriptionsRef.current.forEach((jobId) => {
+      subscriptions.forEach((jobId) => {
         socket.emit("subscribe_job_logs", { jobId });
       });
     };
@@ -69,11 +70,11 @@ export function useAgentSocket() {
     });
 
     return () => {
-      subscriptionsRef.current.forEach((jobId) => {
+      subscriptions.forEach((jobId) => {
         socket.emit("unsubscribe_job_logs", { jobId });
       });
       socket.disconnect();
-      socketRef.current = null;
+      if (socketRef.current === socket) socketRef.current = null;
     };
   }, []);
 

@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|clear|compact)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh.exe -NoProfile -NonInteractive -File \"C:\\My Project\\Axon\\.codex\\hooks\\session-context.ps1\"",
+            "timeout": 10,
+            "statusMessage": "Loading the bounded Axon checkpoint",
+            "additionalContextLimit": 7000
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 import Redis from "ioredis";
 import { environment } from "./environment.js";
 import { createChildLogger } from "./logger.js";
+import { queueDepth } from "../metrics.js";
 
 const logger = createChildLogger({ module: "queue" });
 
@@ -58,5 +59,44 @@ const immediateJobsQueue = new Queue("immediate-jobs", {
     },
   },
 });
+
+// Periodic queue depth collector: updates metrics every 15 seconds.
+// Wraps in try/catch and timeout to prevent Redis hiccups from crashing.
+function startQueueDepthCollector() {
+  const queues = [
+    { instance: scheduledJobsQueue, name: "scheduled-jobs" },
+    { instance: immediateJobsQueue, name: "immediate-jobs" },
+  ];
+
+  const interval = setInterval(async () => {
+    for (const { instance, name } of queues) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const counts = await instance.getJobCounts();
+        clearTimeout(timeoutId);
+
+        // Record depth for each state (waiting, active, delayed, failed, completed).
+        for (const [state, count] of Object.entries(counts)) {
+          queueDepth.set({ queue: name, state }, count);
+        }
+      } catch (err) {
+        // Log but do not crash: queue metrics are observability, not critical path.
+        if (err?.name !== "AbortError") {
+          logger.warn(
+            { err, queueName: name },
+            "Failed to collect queue depth metrics",
+          );
+        }
+      }
+    }
+  }, 15000);
+
+  // Unref so this interval does not keep the process alive on shutdown.
+  interval.unref();
+}
+
+startQueueDepthCollector();
 
 export { redisConnection, scheduledJobsQueue, immediateJobsQueue };

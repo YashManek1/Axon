@@ -11,34 +11,34 @@ const planned = [
 export default function RunbooksPage() {
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Runbooks</h1>
-          <p>Pre-approved command graphs with dependency-aware execution</p>
-        </div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-ink">Runbooks</h1>
+        <p className="text-muted mt-2">Pre-approved command graphs with dependency-aware execution</p>
       </div>
 
-      <div className="panel empty" style={{ padding: "64px 24px" }}>
-        <div className="ic"><BookOpen size={22} /></div>
-        <h3>Runbooks are coming in v2</h3>
-        <p>
-          A runbook is a named DAG of commands wired by <span className="mono">dependsOn</span>.
+      <div className="bg-surface border border-edge rounded-md p-16 text-center mb-5">
+        <div className="flex justify-center mb-4"><BookOpen size={22} className="text-muted" /></div>
+        <h3 className="text-lg font-bold text-ink mb-2">Runbooks are coming in v2</h3>
+        <p className="text-muted">
+          A runbook is a named DAG of commands wired by <span className="font-mono">dependsOn</span>.
           Steps stay blocked until their dependencies finish, then run automatically.
           Today you can use Jobs for sequential execution.
         </p>
       </div>
 
-      <div className="panel" style={{ marginTop: 20 }}>
-        <div className="panel-head"><span className="panel-title">What v2 runbooks will include</span></div>
-        <div className="feed">
+      <div className="bg-surface border border-edge rounded-md overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+          <span className="font-ui font-bold text-sm text-ink">What v2 runbooks will include</span>
+        </div>
+        <div className="divide-y divide-edge">
           {planned.map((item) => (
-            <div className="feed-item" key={item}>
-              <span className="ic acc">
+            <div className="flex items-start gap-3 px-4 py-3" key={item}>
+              <span className="flex items-center justify-center w-5 h-5 mt-px flex-shrink-0 text-success">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                   <path d="M20 6L9 17l-5-5" />
                 </svg>
               </span>
-              <div className="bd"><div className="t">{item}</div></div>
+              <div className="text-sm text-muted">{item}</div>
             </div>
           ))}
         </div>

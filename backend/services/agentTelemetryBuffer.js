@@ -32,6 +32,8 @@ async function flushPendingHeartbeats() {
         ramUsed: entry.telemetryData.ramUsed,
         lastSeenMs: entry.seenAtMs,
         status: "ONLINE",
+        socketId: entry.socketId,
+        tokenVersion: entry.tokenVersion,
       });
       activePoolMembers.push(entry.seenAtMs, String(entry.agentId));
     }
@@ -50,7 +52,7 @@ async function flushPendingHeartbeats() {
   }
 }
 
-export function recordHeartbeat(agentId, telemetryData) {
+export function recordHeartbeat(agentId, telemetryData, identity = {}) {
   const now = Date.now();
 
   return new Promise((resolve) => {
@@ -58,6 +60,8 @@ export function recordHeartbeat(agentId, telemetryData) {
       agentId,
       telemetryData,
       seenAtMs: now,
+      socketId: String(identity.socketId || ""),
+      tokenVersion: String(identity.tokenVersion ?? 0),
       resolve,
     });
 
@@ -68,15 +72,24 @@ export function recordHeartbeat(agentId, telemetryData) {
   });
 }
 
-export async function markAgentOffline(agentId) {
+export async function markAgentOffline(agentId, identity = {}) {
   try {
-    await redisConnection.hset(telemetryKey(agentId), "status", "OFFLINE");
+    await redisConnection.eval(
+      `if redis.call('HGET', KEYS[1], 'socketId') == ARGV[1]
+        and redis.call('HGET', KEYS[1], 'tokenVersion') == ARGV[2]
+       then return redis.call('HSET', KEYS[1], 'status', 'OFFLINE')
+       else return 0 end`,
+      1,
+      telemetryKey(agentId),
+      String(identity.socketId || ""),
+      String(identity.tokenVersion ?? 0),
+    );
   } catch (err) {
     logger.error({ err, agentId }, "Failed to mark agent offline");
   }
 }
 
-export async function getAgentTelemetry(agentId) {
+export async function getAgentTelemetry(agentId, identity = null) {
   try {
     const telemetry = await redisConnection.hgetall(telemetryKey(agentId));
 
@@ -84,6 +97,13 @@ export async function getAgentTelemetry(agentId) {
       return null;
     }
 
+    if (
+      identity &&
+      (String(telemetry.socketId) !== String(identity.socketId || "") ||
+        Number(telemetry.tokenVersion ?? 0) !== Number(identity.tokenVersion ?? 0))
+    ) {
+      return null;
+    }
     return telemetry;
   } catch (err) {
     logger.error({ err, agentId }, "Failed to get agent telemetry");

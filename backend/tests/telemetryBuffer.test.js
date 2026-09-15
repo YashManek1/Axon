@@ -16,7 +16,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   vi.restoreAllMocks();
-  await redisConnection.flushall();
+  await redisConnection.flushdb();
 });
 
 describe("agentTelemetryBuffer", () => {
@@ -63,15 +63,16 @@ describe("agentTelemetryBuffer", () => {
   });
 
   it("markAgentOffline sets status to OFFLINE", async () => {
+    const identity = { socketId: "socket-3", tokenVersion: 2 };
     await telemetryBuffer.recordHeartbeat("agent-3", {
       os: "windows",
       arch: "x64",
       cpuLoad: 0.7,
       ramTotal: 8000,
       ramUsed: 6000,
-    });
+    }, identity);
 
-    await telemetryBuffer.markAgentOffline("agent-3");
+    await telemetryBuffer.markAgentOffline("agent-3", identity);
 
     await expect(
       redisConnection.hget("agent:telemetry:agent-3", "status"),

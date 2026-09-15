@@ -1,10 +1,12 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { CheckCircle, XCircle, Activity, Server } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 import { useAgents, useJobs, useRecentAudit } from "../../hooks/useDashboardData";
 import type { AuditEntry } from "../../hooks/useDashboardData";
 
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+function formatRelative(iso: string, now: number): string {
+  const diff = Math.max(0, now - new Date(iso).getTime());
   const secs = Math.floor(diff / 1000);
   if (secs < 60) return `${secs}s ago`;
   const mins = Math.floor(secs / 60);
@@ -23,9 +25,8 @@ function statusIcon(status: string) {
   return <span className="ic acc"><Activity size={14} /></span>;
 }
 
-function buildSparkData(entries: AuditEntry[]) {
+function buildSparkData(entries: AuditEntry[], now: number) {
   const buckets: Record<number, number> = {};
-  const now = Date.now();
   for (let i = 23; i >= 0; i--) {
     buckets[i] = 0;
   }
@@ -39,19 +40,25 @@ function buildSparkData(entries: AuditEntry[]) {
 }
 
 export default function OverviewPage() {
-  const { data: agents = [] } = useAgents();
+  const { data: agents = [], isLoading: agentsLoading } = useAgents();
   const { data: jobs   = [] } = useJobs();
   const { data: recent = [] } = useRecentAudit(20);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const onlineAgents  = agents.filter((a) => a.status !== "offline").length;
   const enabledJobs   = jobs.filter((j) => j.status === "active" || j.enabled).length;
-  const execLast24h   = recent.filter((e) => Date.now() - new Date(e.startedAt).getTime() < 86_400_000).length;
+  const execLast24h   = recent.filter((e) => now - new Date(e.startedAt).getTime() < 86_400_000).length;
   const failedLast24h = recent.filter(
     (e) => (e.status === "FAILED" || e.status === "TIMEOUT") &&
-      Date.now() - new Date(e.startedAt).getTime() < 86_400_000,
+      now - new Date(e.startedAt).getTime() < 86_400_000,
   ).length;
 
-  const sparkData = buildSparkData(recent);
+  const sparkData = buildSparkData(recent, now);
 
   const stats = [
     { k: "Online agents",     v: `${onlineAgents} / ${agents.length}`, icon: <Server size={15} />,   delta: onlineAgents === agents.length ? "all connected" : `${agents.length - onlineAgents} offline`, deltaType: onlineAgents === agents.length ? "up" : "down" },
@@ -68,6 +75,55 @@ export default function OverviewPage() {
           <p>Fleet-wide execution health and recent activity</p>
         </div>
       </div>
+
+      {/* First run: Overview is the landing screen but the emptiest page in the
+          product. Without this a new org sees only zeroes and no way forward. */}
+      {!agentsLoading && agents.length === 0 && (
+        <section
+          aria-labelledby="first-run-heading"
+          className="bg-surface border border-edge rounded-md p-4 sm:p-6 mb-4"
+        >
+          <h2 id="first-run-heading" className="text-base font-semibold text-ink mb-1">
+            Run your first command
+          </h2>
+          <p className="text-sm text-ink-2 mb-4 max-w-prose">
+            Nothing is connected yet. Two steps and you will have an audited
+            execution on a real machine.
+          </p>
+          <ol className="flex flex-col sm:flex-row gap-3">
+            <li className="flex-1 bg-bg border border-edge rounded-sm p-3.5">
+              <span className="font-mono text-xs text-muted">Step 1</span>
+              <p className="text-sm font-medium text-ink mt-1 mb-2">
+                Create an organization API key
+              </p>
+              <p className="text-xs text-ink-2 mb-3">
+                The key authorises a machine to join your fleet. It is shown once.
+              </p>
+              <Link
+                to="/dashboard/settings"
+                className="inline-flex items-center justify-center h-8 px-3 rounded-sm text-xs font-medium bg-primary text-white hover:bg-primary-hover transition-colors"
+              >
+                Open Settings
+              </Link>
+            </li>
+            <li className="flex-1 bg-bg border border-edge rounded-sm p-3.5">
+              <span className="font-mono text-xs text-muted">Step 2</span>
+              <p className="text-sm font-medium text-ink mt-1 mb-2">
+                Register an agent
+              </p>
+              <p className="text-xs text-ink-2 mb-3">
+                Install the agent on a server, then register it with that key.
+              </p>
+              <Link
+                to="/dashboard/agents"
+                className="inline-flex items-center justify-center h-8 px-3 rounded-sm text-xs font-medium border border-edge text-ink hover:bg-surface-2 transition-colors"
+              >
+                Go to Agents
+              </Link>
+            </li>
+          </ol>
+        </section>
+      )}
 
       <div className="stat-grid">
         {stats.map((s) => (
@@ -98,7 +154,10 @@ export default function OverviewPage() {
                 <Tooltip
                   contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4, fontSize: 12 }}
                   labelFormatter={() => ""}
-                  formatter={(v: number | undefined) => [v ?? 0, "executions"] as [React.ReactNode, React.ReactNode]}
+                  formatter={(value) => [
+                    typeof value === "number" ? value : 0,
+                    "executions",
+                  ]}
                 />
                 <Area type="monotone" dataKey="v" stroke="var(--accent)" fill="url(#sparkGrad)" strokeWidth={2} dot={false} />
               </AreaChart>
@@ -122,7 +181,7 @@ export default function OverviewPage() {
                   <div className="t"><b>{agent.name}</b></div>
                   <div className="s">{agent.systemInfo?.hostname || "—"} · {agent.status}</div>
                 </div>
-                <span className="when">{agent.lastSeen ? formatRelative(agent.lastSeen) : "—"}</span>
+                <span className="when">{agent.lastSeen ? formatRelative(agent.lastSeen, now) : "—"}</span>
               </div>
             ))}
             {agents.length === 0 && (
@@ -148,7 +207,7 @@ export default function OverviewPage() {
                   <div className="t"><b>{entry.command.slice(0, 48)}{entry.command.length > 48 ? "…" : ""}</b></div>
                   <div className="s">{entry.agentId || "—"} · {entry.triggerType} · {formatDuration(entry.durationMs)}</div>
                 </div>
-                <span className="when">{formatRelative(entry.startedAt)}</span>
+                <span className="when">{formatRelative(entry.startedAt, now)}</span>
               </div>
             ))}
             {recent.length === 0 && (

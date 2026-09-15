@@ -29,6 +29,7 @@ export interface Job {
   name:             string;
   description?:     string;
   type:             "http" | "shell";
+  targetAgentId?:   string | { _id: string; name?: string; status?: AgentData["status"]; systemInfo?: AgentData["systemInfo"] } | null;
   schedule:         string;
   payload:          Record<string, unknown>;
   enabled:          boolean;
@@ -237,6 +238,13 @@ export interface AuditEntry {
   exitCode?: number | null;
   stdoutSummary?: string;
   stderrSummary?: string;
+  runId?: string | null;
+  targetExecutionId?: string | null;
+  attemptId?: string | null;
+  operationId?: string | null;
+  targetAgentId?: string | null;
+  reasonCode?: string | null;
+  outcome?: "completed" | "rejected" | "timed_out" | "cancelled" | "unknown" | string | null;
 }
 
 export function useAgentById(agentId: string | null) {

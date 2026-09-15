@@ -1,6 +1,8 @@
 # Axon Runbook
 
-This runbook covers the local Docker Compose development stack and points to production steps. MongoDB runs without authentication in the dev stack for convenience; production must enable MongoDB authentication, TLS, and secret management (see [docs/deploy-azure.md](docs/deploy-azure.md)).
+This runbook covers the local Docker Compose development stack and points to production steps. MongoDB and Redis run with authentication in the dev stack (matching production); production secrets are managed via Azure Key Vault (see [docs/deploy-azure.md](docs/deploy-azure.md)).
+
+> **Updated 2026-08-12:** Prometheus and Grafana observability services now require `PROMETHEUS_BEARER_TOKEN` and `GRAFANA_ADMIN_PASSWORD` to start.
 
 ---
 
@@ -10,16 +12,20 @@ This runbook covers the local Docker Compose development stack and points to pro
 
 | Variable | Dev value | Description |
 |----------|-----------|-------------|
-| `MONGO_URI` | `mongodb://mongodb:27017/axon` | MongoDB connection string |
+| `MONGO_URI` | `mongodb://axon_dev:axon_dev_secret@mongodb:27017/axon?authSource=admin` | MongoDB connection string (with auth) |
 | `REDIS_URI` | `redis://redis:6379` | Redis connection string |
-| `JWT_SECRET` | any 32+ char string | JWT signing key |
+| `JWT_SECRET` | any 32+ char string | JWT signing key (min 32 chars) |
 | `ENCRYPTION_KEY` | 64 hex characters | AES-256-GCM key for sink URIs |
+| `DISPATCH_SIGNING_KEY` | 32+ hex characters | HMAC key for job dispatch signing |
+| `PROMETHEUS_BEARER_TOKEN` | any value (e.g. `prometheus`) | **Required.** Bearer token for Prometheus scrape endpoint |
+| `GRAFANA_ADMIN_PASSWORD` | any value | **Required.** Grafana admin password (dev: can be anything) |
 | `PORT` | `3000` | HTTP port |
 | `NODE_ENV` | `production` | Node environment |
 | `LOG_LEVEL` | `info` | Pino log level |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | (unset in dev) | OpenTelemetry collector endpoint (optional) |
 
-See `backend/.env.development` for a fully annotated template.  
-See `backend/.env.production` for the production template (Azure URIs).
+See `backend/.env.example` for the complete template with annotations.
+See `backend/.env.development` for development-specific values.
 
 ### Frontend (Vite environment variables)
 
@@ -40,18 +46,28 @@ VITE_API_BASE_URL=https://api.yourdomain.com npm run build
 
 ## 1. Start The Full Stack
 
-Create a local environment file:
+Create a local environment file in the repository root:
 
 ```bash
 cat > .env <<'EOF'
 PORT=3000
-MONGO_URI=mongodb://mongodb:27017/axon
+MONGO_URI=mongodb://axon_dev:axon_dev_secret@mongodb:27017/axon?authSource=admin
 REDIS_URI=redis://redis:6379
 JWT_SECRET=change-this-development-secret-at-least-32-chars
 ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+DISPATCH_SIGNING_KEY=00000000000000000000000000000000
 LOG_LEVEL=info
 NODE_ENV=production
+PROMETHEUS_BEARER_TOKEN=prometheus
+GRAFANA_ADMIN_PASSWORD=admin
 EOF
+```
+
+Create the Prometheus token file (required for Prometheus to scrape metrics):
+
+```bash
+mkdir -p observability/prometheus
+echo -n "prometheus" > observability/prometheus/token
 ```
 
 Start the stack:

@@ -1,14 +1,26 @@
 import mongoose from "mongoose";
-import { describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import AuditLog from "../models/auditLog.js";
 import Job from "../models/job.js";
 import Organization from "../models/organization.js";
 import User from "../models/user.js";
-import {
-  createAuditRecord,
-  getJobHistory,
-  updateAuditRecord,
-} from "../services/auditService.js";
+
+let createAuditRecord;
+let getJobHistory;
+let updateAuditRecord;
+let mockRedis;
+
+beforeAll(async () => {
+  const { default: Redis } = await import("ioredis-mock");
+  mockRedis = new Redis();
+
+  vi.doMock("../config/queue.js", () => ({ redisConnection: mockRedis }));
+
+  const svc = await import("../services/auditService.js");
+  createAuditRecord = svc.createAuditRecord;
+  getJobHistory = svc.getJobHistory;
+  updateAuditRecord = svc.updateAuditRecord;
+});
 
 async function createFixture(prefix = "audit-service") {
   const org = await Organization.create({
@@ -48,6 +60,10 @@ function validAuditData({ org, user, job }, overrides = {}) {
     ...overrides,
   };
 }
+
+beforeEach(async () => {
+  await mockRedis.flushall();
+});
 
 describe("auditService", () => {
   it("createAuditRecord with valid data creates a document with status PENDING", async () => {
@@ -145,7 +161,7 @@ describe("auditService", () => {
     const sameJobId = fixture.job._id;
 
     const matching = await createAuditRecord(validAuditData(fixture));
-    await AuditLog.create(
+    await createAuditRecord(
       validAuditData(otherFixture, {
         jobId: sameJobId,
         orgId: otherFixture.org._id,

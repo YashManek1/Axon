@@ -49,6 +49,7 @@ const jobFields = {
   type: z.enum(["http", "shell"]),
   schedule: cronExpressionSchema,
   payload: z.union([httpPayloadSchema, shellPayloadSchema]),
+  targetAgentId: z.union([objectIdSchema, z.null()]).optional(),
   enabled: z.boolean().optional(),
   retryLimit: z.number().int().min(0).optional(),
   webhookUrl: z.string().url().nullable().optional(),

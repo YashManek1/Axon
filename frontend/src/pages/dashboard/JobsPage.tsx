@@ -12,11 +12,20 @@ import { track } from "@vercel/analytics";
 
 type StatusFilter = "all" | "active" | "paused";
 
-function statusBadge(status: string, enabled: boolean) {
-  const effective = status === "active" && enabled ? "active" : "paused";
-  return (
-    <span className={"badge " + effective}>{effective}</span>
-  );
+interface LaunchFeedback {
+  tone: "success" | "error";
+  message: string;
+}
+
+function launchMessage(data: unknown, fallback: string) {
+  const response = data as { runId?: string; status?: string; message?: string };
+  if (response.runId && response.status) return `Run ${response.runId}: ${response.status}`;
+  return response.message ?? fallback;
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  const data = (error as { response?: { data?: { code?: string; message?: string } } }).response?.data;
+  return data?.code && data.message ? `${data.code}: ${data.message}` : data?.message ?? fallback;
 }
 
 function formatSchedule(schedule: string): string {
@@ -31,7 +40,7 @@ function formatSchedule(schedule: string): string {
 }
 
 export default function JobsPage() {
-  const { data: jobs = [], isLoading } = useJobs();
+  const { data: jobs = [], isLoading, isError } = useJobs();
   const queryClient  = useQueryClient();
   const navigate     = useNavigate();
   const confirmOpen  = useConfirmStore((s) => s.open);
@@ -40,6 +49,7 @@ export default function JobsPage() {
   const [editing,  setEditing]  = useState<Job | null>(null);
   const [running,  setRunning]  = useState<Record<string, boolean>>({});
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
+  const [launchFeedback, setLaunchFeedback] = useState<LaunchFeedback | null>(null);
 
   const filtered = jobs.filter((j) => {
     if (filter === "all")    return true;
@@ -51,12 +61,16 @@ export default function JobsPage() {
     if (!job._id) return;
     setRunning((r) => ({ ...r, [job._id!]: true }));
     try {
-      await jobsAPI.runNow(job._id);
-      toast.success("Dispatched", job.name);
+      const response = await jobsAPI.runNow(job._id);
+      const message = launchMessage(response.data, "Job triggered manually");
+      setLaunchFeedback({ tone: "success", message });
+      toast.success("Launch accepted", message);
       track("job_triggered", { jobType: job.type });
       queryClient.invalidateQueries({ queryKey: ["audit"] });
-    } catch {
-      toast.error("Failed", "Could not dispatch " + job.name);
+    } catch (error) {
+      const message = apiErrorMessage(error, "Could not dispatch " + job.name);
+      setLaunchFeedback({ tone: "error", message });
+      toast.error("Launch rejected", message);
     } finally {
       setRunning((r) => ({ ...r, [job._id!]: false }));
     }
@@ -96,104 +110,122 @@ export default function JobsPage() {
 
   return (
     <>
-      <div className="page-head">
+      <div className="flex items-start justify-between gap-8 mb-8">
         <div>
-          <h1>Jobs</h1>
-          <p>Manual, scheduled, and triggered executions</p>
+          <h1 className="text-2xl font-bold text-ink">Jobs</h1>
+          <p className="text-muted mt-2">Manual, scheduled, and triggered executions</p>
         </div>
-        <div className="actions">
-          <button className="btn btn-primary btn-sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
+        <div className="flex items-center gap-2">
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
             <Plus size={14} /> New job
           </button>
         </div>
       </div>
 
-      <div className="filterbar">
-        <div className="seg">
-          {(["all", "active", "paused"] as StatusFilter[]).map((f) => (
-            <button key={f} className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-0 border border-edge rounded-sm bg-bg">
+          {(["all", "active", "paused"] as StatusFilter[]).map((f, idx) => (
+            <button key={f} className={`px-3 py-1.5 text-xs font-medium transition-all ${
+              filter === f ? "bg-primary text-white" : "text-muted hover:text-ink"
+            } ${idx > 0 ? "border-l border-edge" : ""}`} onClick={() => setFilter(f)}>
               {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
         </div>
-        <span className="grow" />
-        <span className="dep-line">{filtered.length} job{filtered.length !== 1 ? "s" : ""}</span>
+        <span className="flex-1" />
+        <span className="text-xs text-muted">{filtered.length} job{filtered.length !== 1 ? "s" : ""}</span>
       </div>
 
-      <div className="panel">
+      {launchFeedback && (
+        <div className={`mb-4 rounded-sm border p-3 text-sm ${launchFeedback.tone === "success" ? "border-green-500/30 text-success" : "border-red-500/30 text-danger"}`} role={launchFeedback.tone === "error" ? "alert" : "status"}>
+          {launchFeedback.message}
+        </div>
+      )}
+
+      <div className="bg-surface border border-edge rounded-md overflow-hidden">
         {isLoading ? (
-          <div style={{ padding: 32, textAlign: "center", color: "var(--text-faint)" }}>
-            <Loader2 size={20} style={{ animation: "spin 0.8s linear infinite" }} />
+          <div className="py-8 text-center text-muted">
+            <Loader2 size={20} style={{ animation: "spin 0.8s linear infinite", margin: "0 auto" }} />
           </div>
+        ) : isError ? (
+          <div className="py-8 text-center text-danger" role="alert">Jobs could not be loaded. Refresh the page and try again.</div>
         ) : (
-          <div className="table-wrap"><table className="tbl">
+          <div className="overflow-x-auto"><table className="w-full border-collapse">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Schedule</th>
-                <th>Status</th>
-                <th>Next run</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Name</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Type</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Schedule</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Status</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Next run</th>
+                <th className="text-right font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", color: "var(--text-faint)", height: 72 }}>
+                  <td colSpan={6} className="text-center text-muted h-18">
                     No jobs found
                   </td>
                 </tr>
               ) : (
                 filtered.map((job) => (
-                  <tr key={job._id} className="clickable">
-                    <td>
+                  <tr key={job._id} className="hover:bg-surface-2">
+                    <td className="px-3.5 py-2.5 border-b border-edge text-ink-2">
                       <span
-                        style={{ color: "var(--text)", fontWeight: 600, cursor: "pointer" }}
+                        className="text-ink font-bold cursor-pointer hover:underline"
                         onClick={() => navigate("/dashboard/jobs/" + job._id)}
                       >
                         {job.name}
                       </span>
                     </td>
-                    <td><span className="chip">{job.type}</span></td>
-                    <td className="mono" style={{ fontSize: "var(--t-xs)", color: "var(--text-muted)" }}>
-                      {formatSchedule(job.schedule)}
+                    <td className="px-3.5 py-2.5 border-b border-edge text-ink-2"><span className="font-mono text-xs bg-surface border border-edge rounded-sm px-2 py-px text-ink-2">{job.type}</span></td>
+                    <td className="font-mono text-xs text-muted px-3.5 py-2.5 border-b border-edge text-ink-2">
+                      {job.type === "shell" ? "Manual only" : formatSchedule(job.schedule)}
                     </td>
-                    <td>
-                      <div className="row gap-2">
-                        <button
-                          className={"toggle" + (job.enabled || job.status === "active" ? " on" : "")}
+                    <td className="px-3.5 py-2.5 border-b border-edge text-ink-2">
+                      <div className="flex items-center gap-1">
+                        {job.type === "http" && <button
+                          className={`relative w-8 h-4 rounded-full transition-colors ${job.enabled || job.status === "active" ? "bg-primary" : "bg-disabled"}`}
                           disabled={toggling[job._id ?? ""]}
                           onClick={() => toggleJob(job)}
-                        />
-                        {statusBadge(job.status, job.enabled)}
+                          style={{
+                            border: "1px solid transparent",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <span className={`absolute w-3 h-3 bg-white rounded-full top-0.5 transition-transform ${job.enabled || job.status === "active" ? "translate-x-4" : "translate-x-0.5"}`} />
+                        </button>}
+                        <span className={`inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm ${
+                          job.status === "active" && job.enabled ? "text-success bg-green-500/10" : "text-warning bg-amber-500/10"
+                        }`}>{job.status === "active" && job.enabled ? "active" : "paused"}</span>
                       </div>
                     </td>
-                    <td style={{ fontSize: "var(--t-xs)", color: "var(--text-muted)" }}>
+                    <td className="text-xs text-muted px-3.5 py-2.5 border-b border-edge text-ink-2">
                       {(job as unknown as { nextRunAt?: string }).nextRunAt
                         ? new Date((job as unknown as { nextRunAt: string }).nextRunAt).toLocaleTimeString()
                         : "—"}
                     </td>
-                    <td>
-                      <div className="row gap-1" style={{ justifyContent: "flex-end" }}>
+                    <td className="px-3.5 py-2.5 border-b border-edge text-ink-2">
+                      <div className="flex items-center justify-end gap-1">
                         <button
-                          className="icon-btn"
-                          title="Run now"
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-sm border border-transparent text-muted transition-all hover:text-ink hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          aria-label="Run now"
                           disabled={running[job._id ?? ""]}
                           onClick={() => runNow(job)}
                         >
                           {running[job._id ?? ""] ? <Loader2 size={14} style={{ animation: "spin 0.8s linear infinite" }} /> : <Play size={14} />}
                         </button>
                         <button
-                          className="icon-btn"
-                          title="Edit"
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-sm border border-transparent text-muted transition-all hover:text-ink hover:bg-surface-2"
+                          aria-label="Edit"
                           onClick={() => { setEditing(job); setFormOpen(true); }}
                         >
                           <Pencil size={14} />
                         </button>
                         <button
-                          className="icon-btn danger"
-                          title="Delete"
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-sm border border-transparent text-muted transition-all hover:text-danger hover:bg-surface-2"
+                          aria-label="Delete"
                           onClick={() => deleteJob(job)}
                         >
                           <Trash2 size={14} />

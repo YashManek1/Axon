@@ -1,8 +1,9 @@
 # Axon — API Audit (Updated)
 
 > Original audit: 2026-06-03
-> This revision: 2026-06-21
-> Scope: verified backend API surface vs. frontend usage; includes fixes shipped in this session.
+> Prior revision: 2026-06-21
+> Current revision: 2026-08-12
+> Scope: verified backend API surface vs. frontend usage; includes all routes and Tier 2 observability endpoints added in this session.
 
 ---
 
@@ -26,6 +27,7 @@
 | DELETE | `/jobs/deleteJob/:jobId` | user | Delete job |
 | PATCH | `/jobs/toggleJobStatus/:jobId` | user | Enable/disable job |
 | POST | `/jobs/runJobNow/:jobId` | user | Manual trigger |
+| PATCH | `/jobs/:id/permissions` | admin | Update job permissions (Tier 3) |
 
 ### Admin — `/admin`
 | Method | Path | Auth | Purpose |
@@ -36,12 +38,16 @@
 | GET | `/admin/all-jobs` | admin | All jobs across all orgs |
 | GET | `/admin/all-users` | admin | All users across all orgs |
 | GET | `/admin/org-analytics` | admin | Per-org agent/job breakdown (current snapshot) |
+| GET | `/admin/metrics` | admin | Prometheus metrics (admin-auth) |
+| GET | `/admin/metrics/prometheus` | prometheus bearer token | Prometheus scrape endpoint (bearer token auth) |
 
 ### Agents — `/agents`
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | POST | `/agents/register` | org API key header | Agent self-registration |
+| POST | `/agents/refresh-token` | agent token | Refresh short-lived agent credentials (Tier 3) |
 | POST | `/agents/:agentId/rotate-key` | admin | Rotate agent API key |
+| PATCH | `/agents/:agentId/permissions` | admin | Update agent permissions (Tier 3) |
 | DELETE | `/agents/:agentId` | admin | Decommission agent |
 | GET | `/agents/getAgents` | user | List org's agents |
 | GET | `/agents/getAgent/:agentId` | user | Get one agent |
@@ -55,6 +61,7 @@
 | GET | `/audit/export` | user | Export history (date range) |
 | GET | `/audit/run/:auditId/logs` | user | Logs for a specific run |
 | GET | `/audit/run/:auditId` | user | One run detail |
+| GET | `/audit/verify-chain` | user | Verify hash chain integrity (Tier 1, not yet live) |
 
 ### Socket.IO (real-time)
 - Connection: JWT cookie auth for `ui` clients; `agentId + apiKey` for `agent` clients.

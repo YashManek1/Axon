@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { Plus, Key, Trash2, WifiOff } from "lucide-react";
 import { useAgents } from "../../hooks/useDashboardData";
@@ -126,16 +127,23 @@ export default function AgentsPage() {
           <form onSubmit={handleRegister}>
             <div className="grid-auto" style={{ marginBottom: 12 }}>
               <div className="field">
-                <label className="label">Agent name</label>
-                <input className="input" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="prod-us-east" required />
+                <label className="label" htmlFor="agent-name">Agent name</label>
+                <input id="agent-name" name="agentName" className="input" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="prod-us-east" required />
               </div>
               <div className="field">
-                <label className="label">Hardware UUID</label>
-                <input className="input mono" value={hwUuid} onChange={(e) => setHwUuid(e.target.value)} placeholder="auto-detected on install" />
+                <label className="label" htmlFor="agent-hw-uuid">Hardware UUID</label>
+                <input id="agent-hw-uuid" name="hardwareUuid" className="input mono" value={hwUuid} onChange={(e) => setHwUuid(e.target.value)} placeholder="auto-detected on install" />
               </div>
               <div className="field">
-                <label className="label">Org API key</label>
-                <input className="input mono" type="password" value={orgApiKey} onChange={(e) => setOrgApiKey(e.target.value)} placeholder="axk_…" required />
+                <label className="label" htmlFor="agent-org-key">Org API key</label>
+                <input id="agent-org-key" name="orgApiKey" className="input mono" type="password" value={orgApiKey} onChange={(e) => setOrgApiKey(e.target.value)} placeholder="axk_…" required autoComplete="off" />
+                <p className="text-xs text-muted mt-1">
+                  Don't have one?{" "}
+                  <Link to="/dashboard/settings" className="text-primary hover:underline">
+                    Create an org API key in Settings
+                  </Link>
+                  .
+                </p>
               </div>
             </div>
             <div className="term" style={{ fontSize: 12, marginBottom: 12 }}>
@@ -159,7 +167,7 @@ export default function AgentsPage() {
       )}
 
       {isLoading ? (
-        <div className="grid-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {[1, 2, 3].map((i) => (
             <div key={i} className="panel" style={{ height: 180 }}>
               <div className="skel" style={{ height: "100%", borderRadius: "var(--r-md)" }} />
@@ -176,7 +184,7 @@ export default function AgentsPage() {
           </div>
         </div>
       ) : (
-        <div className="grid-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {agents.map((agent) => (
             <div key={agent._id} style={{ position: "relative" }}>
               <AgentCard agent={agent} />
@@ -185,6 +193,7 @@ export default function AgentsPage() {
                   <button
                     className="icon-btn"
                     title="Rotate API key"
+                    aria-label={`Rotate API key for ${agent.name}`}
                     onClick={async () => {
                       await agentsAPI.rotateKey(agent._id).catch(() => undefined);
                       toast.info("Key rotated", agent.name);
@@ -195,6 +204,7 @@ export default function AgentsPage() {
                   <button
                     className="icon-btn danger"
                     title="Decommission"
+                    aria-label={`Decommission agent ${agent.name}`}
                     onClick={() => handleDecommission(agent._id, agent.name)}
                   >
                     <Trash2 size={13} />

@@ -16,7 +16,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   vi.restoreAllMocks();
-  await redisConnection.flushall();
+  await redisConnection.flushdb();
 });
 
 describe("dagStateManager", () => {
@@ -26,6 +26,11 @@ describe("dagStateManager", () => {
     await expect(dagStateManager.getJobState("job-1")).resolves.toBe(
       "COMPLETED",
     );
+  });
+
+  it.each(["UNKNOWN", "CANCELLED"])("persists truthful terminal state %s", async (state) => {
+    await dagStateManager.setJobState("job-terminal", state);
+    await expect(dagStateManager.getJobState("job-terminal")).resolves.toBe(state);
   });
 
   it("checkDependenciesMet with all deps COMPLETED returns met true", async () => {
@@ -99,10 +104,11 @@ describe("dagStateManager", () => {
     });
   });
 
-  it("acquireExecutionSlot first call returns acquired true", async () => {
-    await expect(
-      dagStateManager.acquireExecutionSlot("job-1", "worker-1"),
-    ).resolves.toEqual({ acquired: true, existingWorker: null });
+  it("acquireExecutionSlot first call returns acquired true with a fencingToken", async () => {
+    const result = await dagStateManager.acquireExecutionSlot("job-1", "worker-1");
+
+    expect(result).toMatchObject({ acquired: true, existingWorker: null });
+    expect(typeof result.fencingToken).toBe("number");
   });
 
   it("acquireExecutionSlot second concurrent call returns acquired false", async () => {
@@ -115,6 +121,9 @@ describe("dagStateManager", () => {
     expect(results.filter((result) => !result.acquired)).toHaveLength(1);
     expect(results.find((result) => !result.acquired).existingWorker).toEqual(
       expect.any(String),
+    );
+    expect(results.find((result) => result.acquired).fencingToken).toEqual(
+      expect.any(Number),
     );
   });
 });

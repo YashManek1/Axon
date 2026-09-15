@@ -1,14 +1,39 @@
 import AuditLog from "../models/auditLog.js";
-import { getJobHistory, getOrgHistory } from "../services/auditService.js";
+import { getJobHistory, verifyOrgChain } from "../services/auditService.js";
 import { getRecentLogs } from "../services/logStreamBroker.js";
 import { createChildLogger } from "../config/logger.js";
+import { auditChainVerificationFailures } from "../metrics.js";
+import Job from "../models/job.js";
+import { resourceAccessFilter } from "../middlewares/jwt.js";
 
 const logger = createChildLogger({ module: "audit-controller" });
+
+async function accessibleJobIds(user) {
+  return Job.find(resourceAccessFilter(user)).distinct("_id");
+}
+
+async function auditListFilter(user) {
+  if (user.role === "admin") return { orgId: user.orgId };
+  return {
+    orgId: user.orgId,
+    jobId: { $in: await accessibleJobIds(user) },
+  };
+}
+
+async function canReadAuditRecord(user, auditRecord) {
+  if (user.role === "admin") return true;
+  return Boolean(
+    await Job.exists({
+      _id: auditRecord.jobId,
+      ...resourceAccessFilter(user),
+    }),
+  );
+}
 
 export async function getAuditHistoryForJob(req, res) {
   try {
     const history = await getJobHistory(
-      req.params.jobId,
+      req.resource._id,
       req.user.orgId,
       req.query.limit || 50,
       req.query.skip || 0,
@@ -27,7 +52,7 @@ export async function getAuditHistoryForJob(req, res) {
 export async function getRecentAuditActivity(req, res) {
   try {
     const limit = req.query.limit || 8;
-    const history = await AuditLog.find({ orgId: req.user.orgId })
+    const history = await AuditLog.find(await auditListFilter(req.user))
       .sort({ startedAt: -1 })
       .limit(Number(limit));
 
@@ -41,7 +66,7 @@ export async function getRecentAuditActivity(req, res) {
 export async function getAuditLogLines(req, res) {
   try {
     const limit = req.query.limit || 20;
-    const history = await AuditLog.find({ orgId: req.user.orgId })
+    const history = await AuditLog.find(await auditListFilter(req.user))
       .sort({ startedAt: -1 })
       .limit(Number(limit));
 
@@ -64,12 +89,13 @@ export async function exportAuditHistory(req, res) {
   }
 
   try {
-    const history = await getOrgHistory(
-      req.user.orgId,
-      startDate,
-      endDate,
-      req.query.limit || 100,
-    );
+    const accessFilter = await auditListFilter(req.user);
+    const history = await AuditLog.find({
+      ...accessFilter,
+      startedAt: { $gte: startDate, $lte: endDate },
+    })
+      .sort({ startedAt: -1 })
+      .limit(Number(req.query.limit || 100));
 
     return res.status(200).json(history);
   } catch (err) {
@@ -86,6 +112,9 @@ export async function getAuditRun(req, res) {
     });
 
     if (!auditRecord) {
+      return res.status(404).json({ message: "Audit record not found" });
+    }
+    if (!(await canReadAuditRecord(req.user, auditRecord))) {
       return res.status(404).json({ message: "Audit record not found" });
     }
 
@@ -109,9 +138,12 @@ export async function getAuditRunLogs(req, res) {
     if (!auditRecord) {
       return res.status(404).json({ message: "Audit record not found" });
     }
+    if (!(await canReadAuditRecord(req.user, auditRecord))) {
+      return res.status(404).json({ message: "Audit record not found" });
+    }
 
     const count = req.query.count ? Number(req.query.count) : 100;
-    const logs = await getRecentLogs(auditRecord.jobId, count);
+    const logs = await getRecentLogs(auditRecord.runId ?? auditRecord.jobId, count);
 
     return res.status(200).json(logs);
   } catch (err) {
@@ -120,5 +152,18 @@ export async function getAuditRunLogs(req, res) {
       "Failed to fetch audit run logs",
     );
     return res.status(500).json({ message: "Failed to fetch audit run logs" });
+  }
+}
+
+export async function verifyChain(req, res) {
+  try {
+    const result = await verifyOrgChain(req.user.orgId);
+    if (!result.valid) {
+      auditChainVerificationFailures.inc();
+    }
+    return res.status(200).json(result);
+  } catch (err) {
+    logger.error({ err, orgId: req.user?.orgId }, "Failed to verify audit chain");
+    return res.status(500).json({ message: "Failed to verify audit chain" });
   }
 }

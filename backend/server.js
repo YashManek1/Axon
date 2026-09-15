@@ -10,14 +10,10 @@ import { createChildLogger } from "./config/logger.js";
 import { requestId } from "./middleware/requestId.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { scheduledJobsQueue } from "./config/queue.js";
-import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
-import {
-  markAgentOffline,
-  recordHeartbeat,
-} from "./services/agentTelemetryBuffer.js";
 import { FLUSH_AGENT_TELEMETRY_JOB_NAME } from "./workers/telemetryFlushWorker.js";
 import { configureJobWorker } from "./workers/jobWorker.js";
+import { httpRequestDuration, httpRequestTotal } from "./metrics.js";
 import {
   configureLogStreamBroker,
   subscribeClient,
@@ -31,7 +27,8 @@ import agentRoutes from "./routes/agentR.js";
 import agentProvisioningRoutes from "./routes/agentProvisioningR.js";
 import auditRoutes from "./routes/auditR.js";
 
-import Agent from "./models/agent.js";
+import { attachAgentConnection } from "./services/agentConnectionLifecycle.js";
+import { authenticateSocket } from "./services/socketAuth.js";
 
 const PORT = environment.PORT;
 const app = express();
@@ -57,33 +54,60 @@ const apiLimiter = rateLimit({
   message: "Too many requests from this IP, please try again later.",
 });
 
-function getCookieValue(cookieHeader, cookieName) {
-  if (!cookieHeader) {
-    return null;
-  }
-
-  const cookie = cookieHeader
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${cookieName}=`));
-
-  return cookie ? decodeURIComponent(cookie.slice(cookieName.length + 1)) : null;
-}
-
-app.use(apiLimiter);
+// `origin: "*"` with `credentials: true` is invalid per the CORS spec and is rejected
+// by every browser, which broke all authenticated requests. Reflecting an arbitrary
+// origin would be spec-valid but disables same-origin protection, so the allowed
+// origins come from an explicit allowlist in config/environment.js.
+const allowedOrigins = environment.CORS_ALLOWED_ORIGINS.split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 
 app.use(
   cors({
-    origin: "*",
+    origin(origin, callback) {
+      // No Origin header: same-origin navigations, curl, server-to-server.
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      // Omit the CORS headers rather than throwing: the browser blocks the
+      // response either way, and throwing here would turn every disallowed
+      // preflight into a 500 in the logs.
+      return callback(null, false);
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   }),
 );
 
+// The rate limiter MUST run after CORS. Mounted before it, a 429 is returned
+// without Access-Control-Allow-Origin, so the browser reports a misleading
+// "blocked by CORS policy" error instead of the real cause, and the client
+// cannot read the RateLimit-* headers telling it when to retry.
+app.use(apiLimiter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(requestId);
+
+// HTTP metrics middleware: record duration and count by method, route, status
+app.use((req, res, next) => {
+  const startMs = Date.now();
+  const originalSend = res.send;
+
+  res.send = function (data) {
+    const durationSec = (Date.now() - startMs) / 1000;
+    const route = req.baseUrl || req.path;
+    httpRequestDuration.observe(
+      { method: req.method, route, status: res.statusCode },
+      durationSec,
+    );
+    httpRequestTotal.inc({ method: req.method, route, status: res.statusCode });
+    return originalSend.call(this, data);
+  };
+
+  next();
+});
 
 app.use("/user", userRoutes);
 app.use("/jobs", jobRoutes);
@@ -93,51 +117,15 @@ app.use("/agents", agentRoutes);
 app.use("/audit", auditRoutes);
 app.use(errorHandler);
 
-io.use(async (socket, next) => {
-  try {
-    const { agentId, apiKey, token, clientType } = socket.handshake.auth;
-    const sessionToken =
-      token || getCookieValue(socket.handshake.headers.cookie, "axon_session");
-
-    if (clientType === "ui" || sessionToken) {
-      if (!sessionToken) {
-        return next(new Error("Authentication error: Missing UI token"));
-      }
-
-      const user = jwt.verify(sessionToken, environment.JWT_SECRET);
-      socket.clientType = "ui";
-      socket.user = user;
-      socket.orgId = String(user.orgId);
-      socket.data.orgId = String(user.orgId);
-      return next();
-    }
-
-    if (!agentId || !apiKey) {
-      return next(new Error("Authentication error: Missing Credentials"));
-    }
-    const agent = await Agent.findById(agentId);
-    if (!agent) {
-      return next(new Error("Authentication error: Agent not found"));
-    }
-    const isMatch = await agent.matchApiKey(apiKey);
-    if (!isMatch) {
-      return next(new Error("Authentication error: Invalid API Key"));
-    }
-    socket.agent = agent;
-    socket.agentId = agent._id.toString();
-    socket.clientType = "agent";
-    socket.orgId = agent.orgId.toString();
-    socket.data.orgId = agent.orgId.toString();
-    next();
-  } catch (error) {
-    serverLogger.error({ err: error }, "Socket authentication failed");
-    next(new Error("Internal Server Error during Auth"));
-  }
-});
+io.use(authenticateSocket);
 
 io.on("connection", async (socket) => {
   socket.on("subscribe_job_logs", async (data) => {
     try {
+      if (socket.clientType !== "ui") {
+        socket.emit("log_subscription_error", { error: "UI_SESSION_REQUIRED" });
+        return;
+      }
       if (!mongoose.Types.ObjectId.isValid(data?.jobId)) {
         socket.emit("log_subscription_error", {
           error: "INVALID_JOB_ID",
@@ -146,7 +134,7 @@ io.on("connection", async (socket) => {
         return;
       }
 
-      const subscribed = await subscribeClient(socket, data.jobId, socket.orgId);
+      const subscribed = await subscribeClient(socket, data.jobId, socket.user);
       if (!subscribed) {
         socket.emit("log_subscription_error", {
           error: "JOB_NOT_FOUND",
@@ -186,29 +174,7 @@ io.on("connection", async (socket) => {
     return;
   }
 
-  const agent = socket.agent; // attached by auth middleware
-  serverLogger.info(
-    { agentId: agent._id, agentName: agent.name, socketId: socket.id },
-    "Agent connected",
-  );
-
-  // Mark Online
-  agent.status = "online";
-  agent.socketId = socket.id;
-  agent.lastSeen = new Date();
-  await agent.save();
-
-  socket.on("heartbeat", async (data) => {
-    await recordHeartbeat(socket.agentId, data);
-  });
-
-  socket.on("disconnect", async () => {
-    serverLogger.info(
-      { agentId: agent._id, agentName: agent.name, socketId: socket.id },
-      "Agent disconnected",
-    );
-    await markAgentOffline(socket.agentId);
-  });
+  await attachAgentConnection(socket);
 });
 
 async function startServer() {

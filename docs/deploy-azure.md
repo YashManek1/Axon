@@ -1,7 +1,7 @@
 # Axon — Azure Deployment Guide
 
 > This guide replaces the previous Render-based deployment. Azure is now the canonical production target.  
-> Last updated: 2026-06-03
+> Last updated: 2026-08-12 (added OTEL and Prometheus token configuration)
 
 ---
 
@@ -17,12 +17,16 @@ Azure Static Web Apps (frontend, free tier)
 Azure Container Apps — backend (Node.js, auto-scale 0→N)
    │
    ├── Azure Cache for Redis (BullMQ queues, distributed lock)
-   └── Azure Cosmos DB for MongoDB (vCore) or MongoDB Atlas on Azure
-         │
-         └── Azure Key Vault (JWT_SECRET, ENCRYPTION_KEY, connection strings)
+   ├── Azure Cosmos DB for MongoDB (vCore) or MongoDB Atlas on Azure
+   │     │
+   │     └── Azure Key Vault (secrets: MONGO_URI, JWT_SECRET, ENCRYPTION_KEY, DISPATCH_SIGNING_KEY, PROMETHEUS_BEARER_TOKEN)
+   │
+   └── (Optional) External OTEL collector / Prometheus (for distributed tracing and metrics)
 ```
 
-Rust agents run on **remote machines** (customer servers, your own VMs) — they dial outbound to the Container App backend on port 443. No inbound ports required on agent machines.
+**Observability (optional):** Backend emits OpenTelemetry traces (configurable via `OTEL_EXPORTER_OTLP_ENDPOINT`) and Prometheus metrics (scraped via `GET /admin/metrics/prometheus` with bearer token auth).
+
+**Rust agents** run on remote machines (customer servers, your own VMs) — they dial outbound to the Container App backend on port 443. No inbound ports required on agent machines.
 
 ---
 
@@ -76,9 +80,41 @@ az keyvault secret set --vault-name axon-vault --name MONGO-URI \
 
 az keyvault secret set --vault-name axon-vault --name REDIS-URI \
   --value "rediss://<user>:<pass>@<host>:6380"
+
+az keyvault secret set --vault-name axon-vault --name DISPATCH-SIGNING-KEY \
+  --value "$(openssl rand -hex 32)"
+
+# Prometheus bearer token for metrics scrape endpoint (optional, recommended for prod)
+az keyvault secret set --vault-name axon-vault --name PROMETHEUS-BEARER-TOKEN \
+  --value "$(openssl rand -hex 32)"
 ```
 
 > **Trick:** Use Key Vault references in Container Apps (`@Microsoft.KeyVault(...)`) so secrets are fetched at runtime — never baked into images or env files.
+
+### How Key Vault secrets reach `process.env`
+
+Container Apps bridges Key Vault to your application in two steps, with no plaintext file on disk:
+
+1. **Container App secrets** — the `--secrets` flag in `az containerapp create` (Step 4) fetches each value from Key Vault at deploy time and stores it encrypted inside the Container App resource.
+2. **Environment variables via `secretref:`** — the `--env-vars` flag maps those secrets to named environment variables that Azure injects before your process starts.
+
+```
+Key Vault secret  →  Container App secret  →  secretref: env var  →  process.env
+  (MONGO-URI)           (mongo-uri)            (MONGO_URI)          read by environment.js
+```
+
+`backend/config/environment.js` validates these variables through its Zod schema at startup. Because Azure injects them as ordinary `process.env` entries, the application code is identical in dev and prod — only the secret source changes.
+
+Secrets covered:
+
+| Key Vault name               | Container App env var          | Purpose |
+|------------------------------|--------------------------------|---------|
+| `MONGO-URI`                  | `MONGO_URI`                    | Database connection |
+| `REDIS-URI`                  | `REDIS_URI`                    | Queue and lock store |
+| `JWT-SECRET`                 | `JWT_SECRET`                   | User session signing |
+| `ENCRYPTION-KEY`             | `ENCRYPTION_KEY`               | Sink URI encryption |
+| `DISPATCH-SIGNING-KEY`       | `DISPATCH_SIGNING_KEY`         | HMAC-signed job dispatch |
+| `PROMETHEUS-BEARER-TOKEN`    | `PROMETHEUS_BEARER_TOKEN`      | Prometheus scrape auth (optional) |
 
 ---
 
@@ -158,11 +194,16 @@ az containerapp create \
     REDIS_URI=secretref:redis-uri \
     JWT_SECRET=secretref:jwt-secret \
     ENCRYPTION_KEY=secretref:encryption-key \
+    DISPATCH_SIGNING_KEY=secretref:dispatch-signing-key \
+    PROMETHEUS_BEARER_TOKEN=secretref:prometheus-bearer-token \
+    OTEL_EXPORTER_OTLP_ENDPOINT=https://your-otel-collector-endpoint \
   --secrets \
     mongo-uri="$(az keyvault secret show --vault-name axon-vault --name MONGO-URI --query value -o tsv)" \
     redis-uri="$(az keyvault secret show --vault-name axon-vault --name REDIS-URI --query value -o tsv)" \
     jwt-secret="$(az keyvault secret show --vault-name axon-vault --name JWT-SECRET --query value -o tsv)" \
-    encryption-key="$(az keyvault secret show --vault-name axon-vault --name ENCRYPTION-KEY --query value -o tsv)"
+    encryption-key="$(az keyvault secret show --vault-name axon-vault --name ENCRYPTION-KEY --query value -o tsv)" \
+    dispatch-signing-key="$(az keyvault secret show --vault-name axon-vault --name DISPATCH-SIGNING-KEY --query value -o tsv)" \
+    prometheus-bearer-token="$(az keyvault secret show --vault-name axon-vault --name PROMETHEUS-BEARER-TOKEN --query value -o tsv)"
 ```
 
 ### Custom domain + managed TLS

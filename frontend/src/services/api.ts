@@ -86,7 +86,11 @@ export const jobsAPI = {
     api.put("/jobs/updateJob/" + id, data),
   delete: (id: string) => api.delete("/jobs/deleteJob/" + id),
   toggle: (id: string) => api.patch("/jobs/toggleJobStatus/" + id),
-  runNow: (id: string) => api.post("/jobs/runJobNow/" + id),
+  runNow: (id: string, requestKey?: string) => api.post(
+    "/jobs/runJobNow/" + id,
+    undefined,
+    requestKey ? { headers: { "Idempotency-Key": requestKey } } : undefined,
+  ),
 };
 
 export const agentsAPI = {
@@ -108,6 +112,12 @@ export const adminAPI = {
   orgAnalytics: () => api.get("/admin/org-analytics"),
   allJobs:      () => api.get("/admin/all-jobs"),
   allUsers:     () => api.get("/admin/all-users"),
+};
+
+export const orgApiKeysAPI = {
+  list: () => api.get("/admin/org/api-keys"),
+  create: (label: string) => api.post("/admin/org/api-keys", { label }),
+  revoke: (keyId: string) => api.delete("/admin/org/api-keys/" + keyId),
 };
 
 export default api;

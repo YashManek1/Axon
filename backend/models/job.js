@@ -51,6 +51,14 @@ const JobSchema = new mongoose.Schema({
   },
   timezone: { type: String, default: "UTC" },
   payload: { type: mongoose.Schema.Types.Mixed, required: true }, // HttpPayload or ShellPayload
+  // Shell jobs are deliberately bound to a stable agent identity. Existing
+  // targetless jobs remain readable but are rejected by the v2 launch path.
+  targetAgentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Agent",
+    default: null,
+    index: true,
+  },
   enabled: { type: Boolean, default: true },
   retryLimit: { type: Number, default: 0 }, // number of retries on failure
   createdAt: { type: Date, default: Date.now },
@@ -78,6 +86,10 @@ const JobSchema = new mongoose.Schema({
   },
   nextRunAt: { type: Date, index: true },
   dependsOn: [{ type: mongoose.Schema.Types.ObjectId, ref: "Job" }],
+  permissions: {
+    allowedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    allowedRoles: [{ type: String, enum: ["admin", "operator", "viewer", "user"] }],
+  },
 });
 
 JobSchema.index({ orgId: 1, status: 1 });

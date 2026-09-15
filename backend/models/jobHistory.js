@@ -3,15 +3,21 @@ import mongoose from "mongoose";
 const JobHistorySchema = new mongoose.Schema(
   {
     jobId: { type: String, required: true, index: true },
+    runId: { type: String, default: null, index: true },
+    targetExecutionId: { type: String, default: null },
+    attemptId: { type: String, default: null },
+    operationId: { type: String, default: null },
+    targetAgentId: { type: mongoose.Schema.Types.ObjectId, ref: "Agent", default: null },
     orgId: { type: mongoose.Schema.Types.ObjectId, ref: "Organization" },
     status: {
       type: String,
-      enum: ["success", "failure", "timeout"],
+      enum: ["success", "failure", "timeout", "cancelled", "unknown"],
       required: true,
     },
+    reasonCode: { type: String, default: null },
 
     // 1. Metadata (Small, Fast to Query)
-    exitCode: { type: Number, default: 0 },
+    exitCode: { type: Number, default: null },
     duration: { type: Number }, // in milliseconds
     executedAt: { type: Date, default: Date.now },
 

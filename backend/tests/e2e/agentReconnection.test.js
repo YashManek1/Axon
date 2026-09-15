@@ -5,9 +5,14 @@ let redisConnection;
 let modules;
 
 class MockSocket extends EventEmitter {
-  constructor() {
+  constructor(agentId, orgId) {
     super();
     this.emittedCommands = [];
+    this.agentId = String(agentId);
+    this.orgId = String(orgId);
+    this.clientType = "agent";
+    this.authGeneration = 0;
+    this.protocolVersions = [2];
   }
 
   emit(eventName, payload) {
@@ -43,6 +48,8 @@ beforeAll(async () => {
     { default: Job },
     { default: Organization },
     { default: User },
+    { default: JobRun },
+    jobRuns,
   ] = await Promise.all([
     import("../../workers/jobWorker.js"),
     import("../../services/dagStateManager.js"),
@@ -52,6 +59,8 @@ beforeAll(async () => {
     import("../../models/job.js"),
     import("../../models/organization.js"),
     import("../../models/user.js"),
+    import("../../models/jobRun.js"),
+    import("../../services/jobRunService.js"),
   ]);
 
   modules = {
@@ -63,11 +72,13 @@ beforeAll(async () => {
     Job,
     Organization,
     User,
+    JobRun,
+    jobRuns,
   };
 });
 
 beforeEach(async () => {
-  await redisConnection.flushall();
+  await redisConnection.flushdb();
 });
 
 async function createFixture() {
@@ -88,6 +99,7 @@ async function createFixture() {
     apiKey: "agent-key",
     status: "online",
     socketId: "reconnect-socket",
+    allowedCommands: ["sleep 60"],
   });
   const job = await modules.Job.create({
     userId: user._id,
@@ -96,6 +108,8 @@ async function createFixture() {
     type: "shell",
     schedule: "* * * * *",
     payload: { command: "sleep 60" },
+    targetAgentId: agent._id,
+    enabled: false,
   });
 
   return { org, user, agent, job };
@@ -113,46 +127,54 @@ async function waitForSocketCommand(socket) {
 }
 
 describe("agent reconnection e2e", () => {
-  it("Agent reconnection does not lose running job state", async () => {
+  it("disconnect records an unknown outcome without redispatch", async () => {
     const { org, user, agent, job } = await createFixture();
-    const socket = new MockSocket();
+    const socket = new MockSocket(agent._id, org._id);
 
     modules.worker.configureJobWorker({
       sockets: { sockets: new Map([["reconnect-socket", socket]]) },
     });
 
-    await modules.dagStateManager.setJobState(job._id, "RUNNING");
+    const created = await modules.jobRuns.createManualShellRun({
+      job,
+      orgId: org._id,
+      userId: user._id,
+      requestKey: "reconnect-run",
+      ipAddress: "127.0.0.1",
+      userAgent: "vitest",
+    });
+    await modules.jobRuns.markRunQueued(created.run.runId);
+    const queueData = modules.jobRuns.buildQueueData(created.run, job, created.agent);
 
     const processorPromise = modules.worker.jobProcessor({
-      id: "running-job",
+      id: queueData.attemptId,
       name: "dispatch-job",
       queueName: "immediate-jobs",
-      data: {
-        jobId: job._id,
-        payload: job.payload,
-        orgId: org._id,
-        triggeredBy: {
-          userId: user._id,
-          ipAddress: "127.0.0.1",
-          userAgent: "vitest",
-        },
-        triggerType: "MANUAL_API",
-        dependsOn: [],
-      },
+      data: queueData,
     });
 
     await waitForSocketCommand(socket);
     await expect(modules.dagStateManager.getJobState(job._id)).resolves.toBe("RUNNING");
 
     socket.emit("disconnect");
-    await expect(processorPromise).resolves.toMatchObject({
-      status: "failure",
-      jobId: expect.anything(),
+    await expect(processorPromise).rejects.toMatchObject({
+      code: "EXECUTION_OUTCOME_UNKNOWN",
     });
 
+    const persistedRun = await modules.JobRun.findOne({ runId: created.run.runId });
+    expect(persistedRun).toMatchObject({ status: "UNKNOWN", requiresReview: true });
+    expect(socket.emittedCommands).toHaveLength(1);
     const audit = await modules.AuditLog.findOne({ jobId: job._id });
-    expect(audit.status).toBe("FAILED");
-    expect(audit.stderrSummary).toContain("AGENT_DISCONNECTED");
+    expect(audit).toMatchObject({
+      status: "UNKNOWN",
+      outcome: "UNKNOWN",
+      reasonCode: "EXECUTION_OUTCOME_UNKNOWN",
+      runId: created.run.runId,
+      targetExecutionId: queueData.targetExecutionId,
+      attemptId: queueData.attemptId,
+      operationId: queueData.operationId,
+    });
+    expect(audit.stderrSummary).toContain("disconnected");
 
     await modules.telemetryBuffer.recordHeartbeat(agent._id, {
       os: "linux",

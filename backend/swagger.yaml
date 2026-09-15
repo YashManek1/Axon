@@ -33,6 +33,14 @@ components:
       type: apiKey
       in: header
       name: X-Axon-API-Key
+    agentToken:
+      type: http
+      scheme: bearer
+      description: Short-lived (15 min) agent JWT issued at registration, refreshed via /agents/refresh-token
+    prometheusToken:
+      type: http
+      scheme: bearer
+      description: Static PROMETHEUS_BEARER_TOKEN, used only by the Prometheus scraper
 
   schemas:
     User:
@@ -348,6 +356,43 @@ paths:
         '404': { description: Not found }
 
   # ── Agents ────────────────────────────────────────────────────────────
+  /jobs/{id}/permissions:
+    patch:
+      tags: [Jobs]
+      summary: Set per-job access grants (admin only)
+      description: |
+        Per-resource RBAC. Controls which users and roles may trigger this job via
+        POST /jobs/runJobNow/{jobId}, which is guarded by the authResource middleware.
+      parameters:
+        - { in: path, name: id, schema: { type: string }, required: true }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                allowedUsers: { type: array, items: { type: string }, description: User ids }
+                allowedRoles: { type: array, items: { type: string, enum: [admin, user] } }
+      responses:
+        '200':
+          description: Permissions updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:     { type: string }
+                  permissions:
+                    type: object
+                    properties:
+                      allowedUsers: { type: array, items: { type: string } }
+                      allowedRoles: { type: array, items: { type: string } }
+        '400': { description: allowedUsers/allowedRoles must be arrays, or an invalid role was supplied }
+        '403': { description: Admin required }
+        '404': { description: Job not found in caller's organisation }
+
+  # ── Agents ────────────────────────────────────────────────────────────
   /agents/register:
     post:
       tags: [Agents]
@@ -375,6 +420,67 @@ paths:
                   agentId: { type: string }
                   apiKey:  { type: string }
         '401': { description: Invalid org API key }
+
+  /agents/refresh-token:
+    post:
+      tags: [Agents]
+      summary: Exchange a valid agent token for a fresh one
+      description: |
+        Agent tokens are short-lived (15 minutes). The Rust agent calls this every 12 minutes
+        to stay ahead of expiry. Authentication is the agent's *current* token, not the org
+        API key — so a leaked token self-expires rather than granting indefinite access.
+      security:
+        - agentToken: []
+      responses:
+        '200':
+          description: New short-lived token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shortToken: { type: string, description: JWT, 15 minute expiry }
+        '401': { description: Missing, invalid, or expired agent token }
+        '500': { description: Token issuance failed }
+
+  /agents/{agentId}/permissions:
+    patch:
+      tags: [Agents]
+      summary: Set per-agent access grants and sandbox mode (admin only)
+      description: |
+        Controls which users and jobs may execute on this agent, and how commands are
+        isolated at runtime. See also AGENT_SANDBOX_MODE in the agent's own environment —
+        when neither is set, the agent runs commands unsandboxed.
+      parameters:
+        - { in: path, name: agentId, schema: { type: string }, required: true }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                allowedUsers: { type: array, items: { type: string }, description: User ids }
+                allowedJobs:  { type: array, items: { type: string }, description: Job ids }
+                sandboxMode:
+                  type: string
+                  enum: [none, namespace, docker]
+                  description: Omit to leave unchanged. 'none' means no isolation.
+      responses:
+        '200':
+          description: Permissions updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:      { type: string }
+                  allowedUsers: { type: array, items: { type: string } }
+                  allowedJobs:  { type: array, items: { type: string } }
+                  sandboxMode:  { type: string, enum: [none, namespace, docker] }
+        '400': { description: allowedUsers/allowedJobs must be arrays, or sandboxMode invalid }
+        '403': { description: Admin required }
+        '404': { description: Agent not found, or already decommissioned }
 
   /agents/getAgents:
     get:
@@ -524,6 +630,44 @@ paths:
               schema: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } }
 
   # ── Admin ─────────────────────────────────────────────────────────────
+  /audit/verify-chain:
+    get:
+      tags: [Audit]
+      summary: Verify the integrity of the organisation's audit hash chain
+      description: |
+        Replays every audit record for the caller's organisation in creation order and
+        recomputes each SHA-256 link. Any record altered after the fact breaks its own hash
+        and every hash after it, so tampering is detectable rather than merely discouraged.
+
+        A failed verification also increments the Prometheus counter
+        `axon_audit_chain_verification_failures_total` — alert on any increase.
+      responses:
+        '200':
+          description: |
+            Verification completed. Note this returns 200 even when the chain is broken —
+            check the `valid` field, not the status code.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                    description: false if any record failed verification
+                  brokenAt:
+                    type: string
+                    nullable: true
+                    description: _id of the first record whose hash did not match; null when valid
+                  checkedCount:
+                    type: integer
+                    description: Records inspected before returning
+              examples:
+                intact:  { value: { valid: true,  brokenAt: null, checkedCount: 1432 } }
+                tampered: { value: { valid: false, brokenAt: '665f1c9e2a4b8d0011aa22bb', checkedCount: 87 } }
+        '401': { description: Not authenticated }
+        '500': { description: Verification failed to run }
+
+  # ── Admin ─────────────────────────────────────────────────────────────
   /admin/health:
     get:
       tags: [Admin]
@@ -646,3 +790,47 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/User' } }
+
+  /admin/metrics:
+    get:
+      tags: [Admin]
+      summary: Prometheus metrics (session-authenticated, for humans)
+      description: |
+        Returns the full Prometheus registry in text exposition format — the same body as
+        /admin/metrics/prometheus, but gated on an admin session instead of a bearer token.
+        Intended for ad-hoc inspection by an operator; the scraper should use the endpoint below.
+      responses:
+        '200':
+          description: Prometheus text exposition format (NOT JSON)
+          content:
+            text/plain:
+              schema: { type: string }
+              example: |
+                # HELP axon_http_request_total Total HTTP requests
+                # TYPE axon_http_request_total counter
+                axon_http_request_total{method="GET",route="/jobs/getJobs",status="200"} 42
+        '403': { description: Admin required }
+        '500': { description: Registry serialisation failed }
+
+  /admin/metrics/prometheus:
+    get:
+      tags: [Admin]
+      summary: Prometheus scrape endpoint (bearer token)
+      description: |
+        Scrape target for Prometheus. Guarded by a static bearer token rather than a session,
+        because the scraper has no user context.
+
+        Returns **403** when PROMETHEUS_BEARER_TOKEN is unset — the endpoint is closed by
+        default rather than open, so an unconfigured deployment does not silently expose
+        operational metrics.
+      security:
+        - prometheusToken: []
+      responses:
+        '200':
+          description: Prometheus text exposition format (NOT JSON)
+          content:
+            text/plain:
+              schema: { type: string }
+        '401': { description: Bearer token missing or does not match PROMETHEUS_BEARER_TOKEN }
+        '403': { description: PROMETHEUS_BEARER_TOKEN is not configured; endpoint disabled }
+        '500': { description: Registry serialisation failed }

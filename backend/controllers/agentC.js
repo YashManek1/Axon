@@ -5,7 +5,7 @@ import { getAgentTelemetry } from "../services/agentTelemetryBuffer.js";
 const logger = createChildLogger({ module: "agent-controller" });
 
 function mergeTelemetry(agent, telemetry) {
-  if (!telemetry) {
+  if (!telemetry || agent.decommissionedAt) {
     return agent;
   }
 
@@ -51,7 +51,10 @@ export const getAgentById = async (req, res) => {
       return res.status(404).json({ message: "Agent not found" });
     }
 
-    const telemetry = await getAgentTelemetry(req.params.agentId);
+    const telemetry = await getAgentTelemetry(req.params.agentId, {
+      socketId: agent.socketId,
+      tokenVersion: agent.tokenVersion ?? 0,
+    });
     return res.status(200).json(mergeTelemetry(agent.toObject(), telemetry));
   } catch (error) {
     logger.error(

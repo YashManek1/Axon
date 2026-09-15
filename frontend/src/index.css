@@ -1,6 +1,50 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Tailwind v4 theme. These generate real utilities: bg-surface, text-ink-2,
+   border-subtle, font-mono, rounded-md, and the responsive variants.
+   The :root block below is kept during migration so un-migrated components
+   keep rendering; delete it once nothing references var(--*) any more.
+   --------------------------------------------------------------------------- */
+@theme {
+  --color-bg:            #060d1a;
+  --color-surface:       #0d1829;
+  --color-surface-2:     #111f35;
+  --color-edge:          #1a2844;
+  --color-edge-subtle:   #0f1e34;
+
+  --color-primary:       #2563EB;
+  --color-primary-hover: #1d4ed8;
+
+  --color-success:       #10b981;
+  --color-warning:       #f59e0b;
+  --color-danger:        #ef4444;
+  --color-info:          #3b82f6;
+
+  --color-ink:           #e2e8f0;
+  --color-ink-2:         #94a3b8;
+  --color-muted:         #475569;
+  --color-disabled:      #334155;
+  --color-label:         #64748b;
+
+  --color-term-bg:       #020810;
+  --color-term-err:      #f87171;
+
+  --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  --breakpoint-xs: 26.25rem;  /* 420px  - large phones            */
+  --breakpoint-sm: 40rem;     /* 640px                            */
+  --breakpoint-md: 48rem;     /* 768px  - tablet                  */
+  --breakpoint-lg: 64rem;     /* 1024px - small laptop            */
+  --breakpoint-xl: 80rem;     /* 1280px - 3-col layouts start here */
+  --breakpoint-2xl: 96rem;    /* 1536px                           */
+}
+
 :root {
   --bg:            #060d1a;
   --surface:       #0d1829;

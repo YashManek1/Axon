@@ -13,7 +13,14 @@ import Footer from "../components/landing/Footer";
 
 export default function HomePage() {
   return (
-    <div className="blueprint">
+    <div
+      className="bg-bg"
+      style={{
+        backgroundImage:
+          "linear-gradient(rgba(26,40,68,0.30) 1px, transparent 1px), linear-gradient(90deg, rgba(26,40,68,0.30) 1px, transparent 1px)",
+        backgroundSize: "40px 40px",
+      }}
+    >
       <Navbar />
       <Hero />
       <ProblemStrip />

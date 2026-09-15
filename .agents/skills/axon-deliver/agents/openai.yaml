@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deliver Axon"
+  short_description: "Ship a bounded Axon milestone with evidence"
+  default_prompt: "Use $axon-deliver to implement the assigned Axon milestone and verify its behavior."
