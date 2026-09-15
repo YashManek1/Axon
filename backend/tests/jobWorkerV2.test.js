@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   findUser: vi.fn(),
   findJob: vi.fn(),
   hasResourceAccess: vi.fn(),
+  axiosRequest: vi.fn(),
+  axiosPost: vi.fn(),
+  mongoConnect: vi.fn(),
+  sendNotification: vi.fn(),
 }));
 
 vi.mock("../config/queue.js", () => ({ redisConnection: {} }));
@@ -22,6 +26,18 @@ vi.mock("../models/agent.js", () => ({ default: { findOne: mocks.findAgent } }))
 vi.mock("../models/user.js", () => ({ default: { findOne: mocks.findUser } }));
 vi.mock("../models/job.js", () => ({ default: { findOne: mocks.findJob } }));
 vi.mock("../middlewares/jwt.js", () => ({ hasResourceAccess: mocks.hasResourceAccess }));
+vi.mock("../services/executionPolicy.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getExecutionPolicyViolation: (definition) =>
+      actual.getExecutionPolicyViolation(definition, "pilot"),
+  };
+});
+vi.mock("axios", () => ({
+  default: Object.assign(mocks.axiosRequest, { post: mocks.axiosPost }),
+}));
+vi.mock("mongoose", () => ({ default: { createConnection: mocks.mongoConnect } }));
 vi.mock("../models/jobHistory.js", () => ({
   default: { create: mocks.historyCreate },
 }));
@@ -47,7 +63,7 @@ vi.mock("../services/auditService.js", () => ({
   updateAuditRecord: mocks.auditUpdate,
 }));
 vi.mock("../services/logStreamBroker.js", () => ({ publishLogChunk: mocks.publishLogChunk }));
-vi.mock("../services/notificationService.js", () => ({ sendJobNotification: vi.fn() }));
+vi.mock("../services/notificationService.js", () => ({ sendJobNotification: mocks.sendNotification }));
 vi.mock("./telemetryFlushWorker.js", () => ({
   FLUSH_AGENT_TELEMETRY_JOB_NAME: "flush-agent-telemetry",
   flushAgentTelemetry: vi.fn(),
@@ -121,6 +137,23 @@ beforeEach(() => {
 });
 
 describe("job worker protocol-v2 behavior", () => {
+  it.each([
+    ["HTTP", { ...DATA, protocolVersion: undefined, payload: { url: "http://169.254.169.254", method: "GET" } }, "HTTP_EXECUTION_DISABLED"],
+    ["mixed command and URL", { ...DATA, payload: { command: "echo ok", url: "http://169.254.169.254", method: "GET" } }, "HTTP_EXECUTION_DISABLED"],
+    ["webhook", { ...DATA, webhookUrl: "https://example.com/hook" }, "WEBHOOK_EXECUTION_DISABLED"],
+    ["sink", { ...DATA, sink: { type: "mongo", uri: "mongodb://example", collectionName: "out" } }, "EXTERNAL_SINK_DISABLED"],
+  ])("blocks queued %s work before any side effect", async (_case, data, code) => {
+    await expect(jobProcessor(queueJob(data))).rejects.toMatchObject({ code });
+    expect(mocks.auditCreate).not.toHaveBeenCalled();
+    expect(mocks.acquireSlot).not.toHaveBeenCalled();
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.axiosRequest).not.toHaveBeenCalled();
+    expect(mocks.axiosPost).not.toHaveBeenCalled();
+    expect(mocks.mongoConnect).not.toHaveBeenCalled();
+    expect(mocks.sendNotification).not.toHaveBeenCalled();
+  });
+
   it.each([
     [0, "success", "SUCCEEDED"],
     [1, "failure", "FAILED"],

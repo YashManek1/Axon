@@ -119,17 +119,21 @@ export default function JobDetailPage() {
           <p className="text-muted mt-2">Job ID: <span className="font-mono">{job._id}</span></p>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm ${
-            job.enabled || job.status === "active" ? "text-success bg-green-500/10" : "text-warning bg-amber-500/10"
-          }`}>
-            {job.enabled ? "active" : "paused"}
+          <span className="inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm text-warning bg-amber-500/10">
+            {job.type === "http" ? "unsupported in pilot" : "manual only"}
           </span>
-          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed" disabled={running} onClick={runNow}>
+          {job.type === "shell" && <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed" disabled={running} onClick={runNow}>
             {running ? <Loader2 size={14} style={{ animation: "spin 0.8s linear infinite" }} /> : <Play size={14} />}
             Run now
-          </button>
+          </button>}
         </div>
       </div>
+
+      {job.type === "http" && (
+        <div className="mb-4 rounded-sm border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-ink-2" role="alert">
+          This historical HTTP job is read-only. The pilot profile blocks HTTP execution, webhooks, and external result sinks.
+        </div>
+      )}
 
       <div className="bg-surface border border-edge rounded-md overflow-hidden mb-4">
         <div className="flex items-center justify-between px-4 py-3 border-b border-edge">

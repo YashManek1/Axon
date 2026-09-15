@@ -32,6 +32,7 @@ const environmentSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
+  AXON_EXECUTION_PROFILE: z.enum(["pilot", "legacy"]).default("pilot"),
   EMAIL_SMTP_HOST: z.string().optional(),
   EMAIL_SMTP_PORT: z.string().default("587"),
   EMAIL_SMTP_USER: z.string().optional(),

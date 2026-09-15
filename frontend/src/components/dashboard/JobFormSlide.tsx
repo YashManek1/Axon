@@ -153,6 +153,29 @@ function JobFormContent({ onClose, editing }: Omit<JobFormSlideProps, "open">) {
       return { ...prev, headers };
     });
 
+  if (editing?.type === "http") {
+    return (
+      <div className="fixed inset-0 z-50">
+        <div onClick={onClose} className="absolute inset-0 bg-black/60" />
+        <div className="absolute top-0 right-0 bottom-0 w-screen max-w-96 bg-surface border-l border-edge flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-edge">
+            <div className="text-4xl font-bold text-ink">HTTP job unavailable</div>
+            <button className="inline-flex items-center justify-center w-7 h-7 rounded-sm border border-transparent text-muted transition-all hover:text-ink hover:bg-surface-2" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          </div>
+          <div className="flex-1 px-6 py-6">
+            <div className="rounded-sm border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-ink-2" role="alert">
+              HTTP jobs are read-only historical records in the pilot profile. They cannot be edited, enabled, or run.
+            </div>
+            <p className="mt-4 text-sm text-muted">View execution history from the job details page.</p>
+          </div>
+          <div className="flex justify-end px-6 py-4 border-t border-edge">
+            <button type="button" className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm border border-edge text-muted transition-all hover:text-ink hover:bg-surface-2 text-sm" onClick={onClose}>Close</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (form.type === "shell" && !form.targetAgentId) {
@@ -262,9 +285,8 @@ function JobFormContent({ onClose, editing }: Omit<JobFormSlideProps, "open">) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-ink-2 mb-1.5">Type</label>
-              <select className="w-full bg-bg border border-edge text-ink rounded-sm h-10 px-3 text-sm appearance-none" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: 32 }} value={form.type} onChange={(e) => update("type", e.target.value as "shell" | "http")}>
-                <option value="shell">Shell</option>
-                <option value="http">HTTP</option>
+              <select aria-label="Job type" className="w-full bg-bg border border-edge text-ink rounded-sm h-10 px-3 text-sm appearance-none" value="shell" disabled>
+                <option value="shell">Approved shell action</option>
               </select>
             </div>
             {form.type === "http" && <div>

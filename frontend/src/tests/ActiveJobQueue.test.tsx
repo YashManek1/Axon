@@ -87,6 +87,21 @@ describe("ActiveJobQueue", () => {
     expect(screen.getByText("Job 2")).toBeInTheDocument();
   });
 
+  it("shows historical HTTP jobs without run, toggle, or edit controls", () => {
+    mockedUseJobs.mockReturnValue({
+      data: [{ ...job(1), type: "http", payload: { url: "https://example.test/hook" }, enabled: true, status: "active" }],
+      isLoading: false,
+    } as never);
+
+    renderPage();
+
+    expect(screen.getByText("unsupported in pilot")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run now" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(mockedJobsAPI.runNow).not.toHaveBeenCalled();
+    expect(mockedJobsAPI.toggle).not.toHaveBeenCalled();
+  });
+
   it("Run Now button becomes disabled while loading", async () => {
     mockedUseJobs.mockReturnValue({
       data: [job(1)],

@@ -84,6 +84,27 @@ function renderForm(props: { open: boolean; editing: Job | null }) {
 }
 
 describe("JobFormSlide", () => {
+  it("offers only approved shell actions for new pilot jobs", () => {
+    renderForm({ open: true, editing: null });
+
+    const type = screen.getByRole("combobox", { name: "Job type" });
+    expect(type).toBeDisabled();
+    expect(screen.getByRole("option", { name: "Approved shell action" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "HTTP" })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("https://api.example.com/hook")).not.toBeInTheDocument();
+  });
+
+  it("renders historical HTTP jobs read-only without save controls", () => {
+    renderForm({
+      open: true,
+      editing: job({ type: "http", payload: { url: "https://example.test/hook", method: "POST" } }),
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("read-only historical records");
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("https://api.example.com/hook")).not.toBeInTheDocument();
+  });
+
   it("initializes an edit draft with the job command and settings", () => {
     renderForm({ open: true, editing: job() });
 

@@ -48,7 +48,6 @@ export default function JobsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing,  setEditing]  = useState<Job | null>(null);
   const [running,  setRunning]  = useState<Record<string, boolean>>({});
-  const [toggling, setToggling] = useState<Record<string, boolean>>({});
   const [launchFeedback, setLaunchFeedback] = useState<LaunchFeedback | null>(null);
 
   const filtered = jobs.filter((j) => {
@@ -76,20 +75,6 @@ export default function JobsPage() {
     }
   };
 
-  const toggleJob = async (job: Job) => {
-    if (!job._id) return;
-    setToggling((t) => ({ ...t, [job._id!]: true }));
-    try {
-      await jobsAPI.toggle(job._id);
-      toast.success(job.enabled ? "Job paused" : "Job enabled", job.name);
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    } catch {
-      toast.error("Failed", "Could not toggle " + job.name);
-    } finally {
-      setToggling((t) => ({ ...t, [job._id!]: false }));
-    }
-  };
-
   const deleteJob = (job: Job) => {
     confirmOpen({
       title: "Delete Job",
@@ -113,7 +98,7 @@ export default function JobsPage() {
       <div className="flex items-start justify-between gap-8 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-ink">Jobs</h1>
-          <p className="text-muted mt-2">Manual, scheduled, and triggered executions</p>
+          <p className="text-muted mt-2">Manual approved actions on an exact agent</p>
         </div>
         <div className="flex items-center gap-2">
           <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
@@ -185,20 +170,11 @@ export default function JobsPage() {
                     </td>
                     <td className="px-3.5 py-2.5 border-b border-edge text-ink-2">
                       <div className="flex items-center gap-1">
-                        {job.type === "http" && <button
-                          className={`relative w-8 h-4 rounded-full transition-colors ${job.enabled || job.status === "active" ? "bg-primary" : "bg-disabled"}`}
-                          disabled={toggling[job._id ?? ""]}
-                          onClick={() => toggleJob(job)}
-                          style={{
-                            border: "1px solid transparent",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <span className={`absolute w-3 h-3 bg-white rounded-full top-0.5 transition-transform ${job.enabled || job.status === "active" ? "translate-x-4" : "translate-x-0.5"}`} />
-                        </button>}
-                        <span className={`inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm ${
-                          job.status === "active" && job.enabled ? "text-success bg-green-500/10" : "text-warning bg-amber-500/10"
-                        }`}>{job.status === "active" && job.enabled ? "active" : "paused"}</span>
+                        {job.type === "http" ? (
+                          <span className="inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm text-warning bg-amber-500/10">unsupported in pilot</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm text-warning bg-amber-500/10">manual only</span>
+                        )}
                       </div>
                     </td>
                     <td className="text-xs text-muted px-3.5 py-2.5 border-b border-edge text-ink-2">
@@ -208,21 +184,21 @@ export default function JobsPage() {
                     </td>
                     <td className="px-3.5 py-2.5 border-b border-edge text-ink-2">
                       <div className="flex items-center justify-end gap-1">
-                        <button
+                        {job.type === "shell" && <button
                           className="inline-flex items-center justify-center w-7 h-7 rounded-sm border border-transparent text-muted transition-all hover:text-ink hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           aria-label="Run now"
                           disabled={running[job._id ?? ""]}
                           onClick={() => runNow(job)}
                         >
                           {running[job._id ?? ""] ? <Loader2 size={14} style={{ animation: "spin 0.8s linear infinite" }} /> : <Play size={14} />}
-                        </button>
-                        <button
+                        </button>}
+                        {job.type === "shell" && <button
                           className="inline-flex items-center justify-center w-7 h-7 rounded-sm border border-transparent text-muted transition-all hover:text-ink hover:bg-surface-2"
                           aria-label="Edit"
                           onClick={() => { setEditing(job); setFormOpen(true); }}
                         >
                           <Pencil size={14} />
-                        </button>
+                        </button>}
                         <button
                           className="inline-flex items-center justify-center w-7 h-7 rounded-sm border border-transparent text-muted transition-all hover:text-danger hover:bg-surface-2"
                           aria-label="Delete"

@@ -31,6 +31,7 @@ import { publishLogChunk } from "../services/logStreamBroker.js";
 import { sendJobNotification } from "../services/notificationService.js";
 import { isWithinExecutionWindow } from "../utils/executionWindow.js";
 import { hasResourceAccess } from "../middlewares/jwt.js";
+import { getExecutionPolicyViolation } from "../services/executionPolicy.js";
 import { buildSinkPayload } from "../utils/sinkFormat.js";
 import {
   FLUSH_AGENT_TELEMETRY_JOB_NAME,
@@ -181,6 +182,18 @@ export const jobProcessor = async (job) => {
     startBefore,
     maxOutputBytes,
   } = job.data;
+
+  const policyViolation = getExecutionPolicyViolation({
+    type: payload?.url ? "http" : payload?.command ? "shell" : undefined,
+    payload,
+    webhookUrl,
+    sink,
+  });
+  if (policyViolation) {
+    const policyError = new UnrecoverableError(policyViolation.message);
+    policyError.code = policyViolation.code;
+    throw policyError;
+  }
   const jobLogger = logger.child({
     bullJobId: job.id,
     queueName: job.queueName,

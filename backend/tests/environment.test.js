@@ -58,6 +58,17 @@ describe("environment validation", () => {
     expect(Object.isFrozen(environment)).toBe(true);
   });
 
+  it("defaults to the safe pilot execution profile", () => {
+    const environment = validateEnvironment(validEnvironment);
+    expect(environment.AXON_EXECUTION_PROFILE).toBe("pilot");
+  });
+
+  it("rejects an unknown execution profile", () => {
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, AXON_EXECUTION_PROFILE: "unsafe" }),
+    ).toThrow(/AXON_EXECUTION_PROFILE/);
+  });
+
   it("logger does not throw when called with structured data", () => {
     const childLogger = createChildLogger({ testName: "environment.test" });
 

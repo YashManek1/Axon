@@ -14,6 +14,7 @@ import {
   markQueueFailure,
   markRunQueued,
 } from "../services/jobRunService.js";
+import { getExecutionPolicyViolation } from "../services/executionPolicy.js";
 
 const JOB_NAME = "dispatch-job";
 const logger = createChildLogger({ module: "job-controller" });
@@ -21,6 +22,13 @@ const logger = createChildLogger({ module: "job-controller" });
 // ─── Helper: Prepare sink for queue (decrypt so worker gets plaintext) ───
 function prepareSinkForQueue(sink) {
   return decryptSink(sink);
+}
+
+function rejectUnsupportedExecution(res, definition) {
+  const violation = getExecutionPolicyViolation(definition);
+  if (!violation) return false;
+  res.status(409).json(violation);
+  return true;
 }
 
 export const createJob = async (req, res) => {
@@ -49,6 +57,8 @@ export const createJob = async (req, res) => {
       timezone,
       targetAgentId,
     } = req.body;
+
+    if (rejectUnsupportedExecution(res, { type, payload, webhookUrl, sink })) return;
 
     const userId = req.user.id;
     const user = await userModel.findById(userId);
@@ -241,6 +251,9 @@ export const updateJob = async (req, res) => {
       return res.status(404).json({ message: "Job not found" });
     }
 
+    // Legacy outbound definitions remain readable for evidence, but immutable in pilot mode.
+    if (rejectUnsupportedExecution(res, job)) return;
+
     const oldSchedule = job.schedule;
 
     const {
@@ -264,6 +277,15 @@ export const updateJob = async (req, res) => {
       timezone,
       targetAgentId,
     } = req.body;
+
+    if (
+      rejectUnsupportedExecution(res, {
+        type: type ?? job.type,
+        payload: payload ?? job.payload,
+        webhookUrl: webhookUrl !== undefined ? webhookUrl : job.webhookUrl,
+        sink: sink !== undefined ? sink : job.sink,
+      })
+    ) return;
 
     if (name !== undefined) job.name = name;
     if (webhookUrl !== undefined) job.webhookUrl = webhookUrl;
@@ -447,6 +469,8 @@ export const toggleJobStatus = async (req, res) => {
       return res.status(404).json({ message: "Job not found" });
     }
 
+    if (rejectUnsupportedExecution(res, job)) return;
+
     if (job.type === "shell") {
       job.enabled = false;
       await job.save();
@@ -530,6 +554,8 @@ export const runJobNow = async (req, res) => {
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
     }
+
+    if (rejectUnsupportedExecution(res, job)) return;
 
     // HTTP behavior remains on the established path during this shell-v2 slice.
     if (job.type === "http") {

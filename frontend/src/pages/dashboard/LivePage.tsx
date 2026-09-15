@@ -17,6 +17,7 @@ export default function LivePage() {
   const termRef = useRef<HTMLDivElement>(null);
 
   const selectedJob = jobs.find((j) => j._id === selectedJobId);
+  const selectedJobIsSupported = selectedJob?.type === "shell";
   const jobLogs     = recentLogs.filter((l) => l.jobId === selectedJobId);
 
   useEffect(() => {
@@ -34,6 +35,10 @@ export default function LivePage() {
 
   const handleRun = async () => {
     if (!selectedJobId) { toast.error("No job", "Select a job first"); return; }
+    if (!selectedJobIsSupported) {
+      toast.error("Unavailable in pilot", "Historical HTTP jobs are read-only and cannot be run.");
+      return;
+    }
     setRunning(true);
     try {
       await jobsAPI.runNow(selectedJobId);
@@ -63,7 +68,7 @@ export default function LivePage() {
               <option key={j._id} value={j._id}>{j.name}</option>
             ))}
           </select>
-          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={!selectedJobId || running} onClick={handleRun}>
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={!selectedJobId || !selectedJobIsSupported || running} onClick={handleRun}>
             <Play size={14} /> {running ? "Dispatching…" : "Run now"}
           </button>
         </div>
@@ -113,7 +118,11 @@ export default function LivePage() {
             <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
               <span className="font-ui font-bold text-sm text-ink">Execution</span>
               <span className="flex-1" />
-              {selectedJob ? <span className="flex items-center gap-1.5 text-xs text-success"><span className="w-1.5 h-1.5 bg-success rounded-full" />ready</span> : null}
+              {selectedJob ? (
+                selectedJobIsSupported
+                  ? <span className="flex items-center gap-1.5 text-xs text-success"><span className="w-1.5 h-1.5 bg-success rounded-full" />ready</span>
+                  : <span className="text-xs text-warning">unsupported in pilot</span>
+              ) : null}
             </div>
             <div className="p-4 flex flex-col gap-2.75 text-sm">
               <div className="flex justify-between">

@@ -1,6 +1,6 @@
 # Axon live TODO
 
-Last updated: 15 September 2026. Owner: Yash; execution coordinator: Sol; architecture/security/final acceptance: Astra.
+Last updated: 16 September 2026. Owner: Yash; execution coordinator: Sol; architecture/security/final acceptance: Astra.
 
 This is the current work tracker. Historical audits remain snapshots. DONE requires implementation or an explicitly documentation-only deliverable plus its evidence.
 
@@ -19,7 +19,8 @@ This is the current work tracker. Historical audits remain snapshots. DONE requi
 | R1-07 | Update current plans and publish round report locally | Astra | DONE | Round report now records complete backend results, accepted frontend checks, local Redis recovery and explicit remaining release gates. Product/automation/audit plans link this tracker |
 | R2-01 | Exact-server targeting (T04) | Sol / Terra; Astra accepted | DONE (local foundation) | Stable target is persisted, selected explicitly in UI, checked at API/worker/socket/Rust boundaries, and never silently substituted. Legacy targetless shell jobs fail closed. Real multi-host Linux verification remains a release gate |
 | R2-02 | Truthful results/retry/run-attempt identity (T05–T08) | Sol / Terra; Astra accepted with gaps | IN PROGRESS | Manual single-target/single-attempt v2 is implemented: durable run before queue, signed correlated identities, exact command approval, actor/job recheck, exit-code truth, UNKNOWN, per-run logs, idempotent launch, first-terminal preservation and no automatic retry. Final checks 15 September: backend 31 files / 274 tests, frontend 4 files / 17 tests + lint/build, Rust 21 tests + strict Clippy, all exit 0. Remaining T06/T08: durable restart recovery, agent journal/reconciliation, safe retry policy and terminal-write recovery |
-| R2-03 | Durable evidence, scheduling and remaining release blockers | Sol / Astra | TODO | Add recovery worker/outbox or supported transaction design, Linux descendant/process-group termination, resource-level exclusion, real Mongo/Redis/Linux fleet tests, migration/rollback evidence and matched release artifacts. Shell scheduling/dependencies remain disabled |
+| R2-03 | Pilot execution-surface containment (T09) | Sol / Terra; Astra accepted | DONE (local foundation) | `AXON_EXECUTION_PROFILE` defaults to `pilot`. API and worker reject arbitrary HTTP jobs, execution webhooks and external result sinks before mutation, queueing or effects; historical HTTP records remain readable but immutable, and all UI launch/edit/toggle paths are absent or disabled. Final checks 16 September: backend 33 files / 290 tests; frontend 6 files / 22 tests plus ESLint/build; independent Astra review accepted. Explicit `legacy` mode and SMTP status notifications remain; real deployment verification is not claimed |
+| R2-04 | Durable evidence, scheduling and remaining release blockers | Sol / Astra | TODO | Add recovery worker/outbox or supported transaction design, Linux descendant/process-group termination, resource-level exclusion, real Mongo/Redis/Linux fleet tests, migration/rollback evidence and matched release artifacts. Shell scheduling/dependencies remain disabled |
 | R3-01 | Polished customer journey and server map | Unassigned | TODO | Guided setup → action → preview → result → safe recovery |
 | R3-02 | Tested installation, backup, restore and first paid pilot | Unassigned | TODO | Release gates must pass; no production readiness claim yet |
 

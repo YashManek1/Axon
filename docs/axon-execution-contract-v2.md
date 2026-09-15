@@ -1,31 +1,31 @@
 # Axon execution contract v2 — next implementation milestone
 
-Status: MANUAL SINGLE-TARGET FOUNDATION IMPLEMENTED LOCALLY; INDEPENDENTLY ACCEPTED WITH EXPLICIT GAPS. Updated 15 September 2026. This document remains the contract and release-gate record; it does not claim unattended production readiness.
+Status: MANUAL SINGLE-TARGET FOUNDATION AND PILOT EXECUTION CONTAINMENT IMPLEMENTED LOCALLY; INDEPENDENTLY ACCEPTED WITH EXPLICIT GAPS. Updated 16 September 2026. This document remains the contract and release-gate record; it does not claim unattended production readiness.
 
-## Implementation checkpoint — 15 September 2026
+## Implementation checkpoint — 16 September 2026
 
-The bounded manual shell path is now implemented across API, queue worker, Socket.IO routing, Rust agent and customer UI. A launch writes a durable run before queueing, binds one stable agent, uses distinct run/target-execution/attempt/operation IDs, signs the fixed v2 envelope, checks current user/job/agent authority again before emission, requires an exact approved command string, and permits no automatic retry. Targetless legacy shell work and unsupported shell scheduling/dependencies fail closed.
+The bounded manual shell path is now implemented across API, queue worker, Socket.IO routing, Rust agent and customer UI. A launch writes a durable run before queueing, binds one stable agent, uses distinct run/target-execution/attempt/operation IDs, signs the fixed v2 envelope, checks current user/job/agent authority again before emission, requires an exact approved command string, and permits no automatic retry. Targetless legacy shell work and unsupported shell scheduling/dependencies fail closed. The default pilot profile also rejects arbitrary HTTP jobs, execution webhooks and external result sinks at both API and worker boundaries; historical HTTP definitions remain readable but immutable.
 
 Results retain correlated exit code/output and distinguish completed, rejected, timed out, cancelled and unknown outcomes. Lost acknowledgement/result and post-dispatch persistence failures require review and never become a proven pre-execution rejection. Audit history exposes the v2 identities, uses versioned tamper evidence, and stores live output per run rather than per reusable job.
 
 Verification on the stabilized source passed:
 
-- backend: 31 test files, 274 tests, isolated MongoMemoryServer and local Redis DB 15;
-- frontend: 4 test files, 17 tests, ESLint and production build;
+- backend: 33 test files, 290 tests, isolated MongoMemoryServer and local Redis DB 15;
+- frontend: 6 test files, 22 tests, ESLint and production build;
 - Rust agent: 21 tests and `cargo clippy -- -D warnings`;
-- independent Astra security review: accepted for this bounded foundation.
+- independent Astra security reviews: accepted for the bounded manual foundation and T09 pilot containment.
 
-The acceptance excludes durable restart recovery, an agent execution journal, reconciliation, safe retries, full Linux descendant/process-group termination, resource-level exclusion, guaranteed audit/output durability during infrastructure outages, real fleet installation and paid-pilot readiness. A terminal database write that persistently fails can leave the JobRun nonterminal while audit/history records persistence uncertainty; the recovery worker remains required.
+The acceptance excludes durable restart recovery, an agent execution journal, reconciliation, safe retries, full Linux descendant/process-group termination, resource-level exclusion, guaranteed audit/output durability during infrastructure outages, real fleet installation and paid-pilot readiness. Explicit `legacy` mode retains the old outbound execution surface, and SMTP status notifications remain available; pilot containment is specifically for HTTP jobs, execution webhooks and external result sinks. A terminal database write that persistently fails can leave the JobRun nonterminal while audit/history records persistence uncertainty; the recovery worker remains required.
 
 ## The simple explanation
 
 Imagine your company has three servers: `demo-web`, `production-web`, and `database`. You want to check a service on `demo-web`. “Run this in my company” is insufficient information. Axon must record **which machine you chose**, verify that you may use it, and send the operation only to that machine.
 
-Today the shell worker searches for an online agent inside the organization. It does not persist a chosen target on the job. Whichever matching agent the database returns may receive the command. That is useful for some interchangeable worker-pool designs, but it is wrong for operations where the machine matters. We must not present that behavior as exact-server targeting.
+Before the local v2 foundation, the shell worker searched for any online agent inside the organization. The implemented path now persists and rechecks the chosen stable target; legacy targetless shell work fails closed. Real multi-host Linux verification remains a release gate.
 
 Exact targeting means: **if you choose demo-web, the command goes to demo-web or it does not run.** If demo-web is offline, Axon shows a blocked/waiting state and eventually expires the request under the chosen policy. It must not silently send the command to production-web because that server happens to be online.
 
-This is separate from permissions. Permissions answer “are you allowed to do this?” Targeting answers “where will it happen?” We are fixing the first question in round 1; the second is a next-round implementation.
+This is separate from permissions. Permissions answer “are you allowed to do this?” Targeting answers “where will it happen?” Both checks exist in the local foundation and still require real fleet evidence before a customer-pilot claim.
 
 ## The identities we need
 
