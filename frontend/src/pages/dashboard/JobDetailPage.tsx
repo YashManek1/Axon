@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Play, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { ArrowLeft, Play, Loader2, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { auditAPI, jobsAPI } from "../../services/api";
 import { toast } from "../../stores/toastStore";
 import type { Job } from "../../hooks/useDashboardData";
@@ -44,12 +44,25 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
+function targetSummary(target: Job["targetAgentId"]) {
+  if (!target) return null;
+  if (typeof target === "string") return { id: target, label: target };
+
+  const hostname = target.systemInfo?.hostname;
+  return { id: target._id, label: [target.name, hostname, target._id].filter(Boolean).join(" · ") };
+}
+
+function isUnknownOutcome(run: AuditRecord) {
+  return (run.outcome ?? run.status).toUpperCase() === "UNKNOWN";
+}
+
 export default function JobDetailPage() {
   const { jobId }       = useParams();
   const navigate        = useNavigate();
   const queryClient     = useQueryClient();
   const [page, setPage] = useState(0);
   const [running, setRunning] = useState(false);
+  const [confirmingLaunch, setConfirmingLaunch] = useState(false);
   const [launchFeedback, setLaunchFeedback] = useState<string | null>(null);
 
   const jobQuery = useQuery<Job>({
@@ -107,6 +120,18 @@ export default function JobDetailPage() {
   }
 
   const payload = job.payload as Record<string, unknown>;
+  const target = targetSummary(job.targetAgentId);
+  const hasUnknownOutcome = history.some(isUnknownOutcome);
+
+  const openLaunchConfirmation = () => {
+    if (!target) {
+      const message = "This job has no exact target saved. It cannot be dispatched until it is configured again.";
+      setLaunchFeedback(message);
+      toast.error("Launch blocked", message);
+      return;
+    }
+    setConfirmingLaunch(true);
+  };
 
   return (
     <>
@@ -122,9 +147,9 @@ export default function JobDetailPage() {
           <span className="inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm text-warning bg-amber-500/10">
             {job.type === "http" ? "unsupported in pilot" : "manual only"}
           </span>
-          {job.type === "shell" && <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed" disabled={running} onClick={runNow}>
+          {job.type === "shell" && <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed" disabled={running} onClick={openLaunchConfirmation}>
             {running ? <Loader2 size={14} style={{ animation: "spin 0.8s linear infinite" }} /> : <Play size={14} />}
-            Run now
+            Review & run
           </button>}
         </div>
       </div>
@@ -142,6 +167,7 @@ export default function JobDetailPage() {
         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
           <DetailRow label="Type"     value={job.type} />
           <DetailRow label="Schedule" value={job.type === "shell" ? "Manual only" : job.schedule} />
+          {job.type === "shell" && <DetailRow label="Exact target" value={target?.label ?? "Missing — launch blocked"} />}
           {job.type === "http" && <DetailRow label="Retries" value={String(job.retryLimit)} />}
           <DetailRow label="Created by" value={createdBy} />
           {job.type === "shell" && Boolean(payload?.command) && (
@@ -160,10 +186,17 @@ export default function JobDetailPage() {
 
       {launchFeedback && <div className="mb-4 rounded-sm border border-edge p-3 text-sm text-ink-2" role="status">{launchFeedback}</div>}
 
+      {hasUnknownOutcome && (
+        <div className="mb-4 rounded-sm border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-ink-2" role="alert">
+          <div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 shrink-0 text-warning" size={16} /><span><strong>Execution outcome unknown.</strong> Axon has not received enough evidence to say whether the command completed. Do not run it again until the target and run evidence have been reconciled.</span></div>
+        </div>
+      )}
+
       <div className="bg-surface border border-edge rounded-md overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
           <span className="font-ui font-bold text-sm text-ink">Execution history</span>
           <span className="flex-1" />
+          {historyQuery.isFetching && !historyQuery.isLoading && <span className="mr-3 text-xs text-muted" role="status">Refreshing evidence…</span>}
           <span className="text-xs text-muted">Page {page + 1}</span>
         </div>
         <div className="overflow-x-auto">
@@ -180,7 +213,9 @@ export default function JobDetailPage() {
             </thead>
             <tbody>
               {historyQuery.isLoading ? (
-                <tr><td colSpan={6} className="text-center text-muted h-16">Loading...</td></tr>
+                <tr><td colSpan={6} className="text-center text-muted h-16" role="status">Loading execution evidence…</td></tr>
+              ) : historyQuery.isError && history.length === 0 ? (
+                <tr><td colSpan={6} className="text-center text-danger h-16">Execution evidence could not be refreshed.</td></tr>
               ) : history.length === 0 ? (
                 <tr><td colSpan={6} className="text-center text-muted h-16">No executions yet</td></tr>
               ) : (
@@ -210,11 +245,41 @@ export default function JobDetailPage() {
             </tbody>
           </table>
         </div>
+        {historyQuery.isError && (
+          <div className="border-t border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-ink-2" role="alert">
+            The execution-history service is unavailable. Do not assume a missing update means the command failed or succeeded; shown evidence may be stale.
+          </div>
+        )}
+        {historyQuery.dataUpdatedAt > 0 && (
+          <div className="border-t border-edge px-4 py-2 text-xs text-muted" role="status">
+            Evidence last refreshed {new Date(historyQuery.dataUpdatedAt).toLocaleString()}.
+          </div>
+        )}
         <div className="flex gap-1 px-4 py-3 justify-end">
           <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm border border-edge text-muted transition-all hover:text-ink hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>&larr; Prev</button>
           <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm border border-edge text-muted transition-all hover:text-ink hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={history.length < PAGE_SIZE} onClick={() => setPage((p) => p + 1)}>Next &rarr;</button>
         </div>
       </div>
+
+      {confirmingLaunch && target && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="launch-confirmation-title">
+          <button className="absolute inset-0 bg-black/60" aria-label="Cancel launch" onClick={() => setConfirmingLaunch(false)} />
+          <div className="relative w-full max-w-lg rounded-md border border-edge bg-surface p-6 shadow-xl">
+            <h2 id="launch-confirmation-title" className="text-lg font-bold text-ink">Confirm exact target and command</h2>
+            <p className="mt-2 text-sm text-muted">This manual launch is addressed only to the saved target. If that target is unavailable, Axon should not select another server.</p>
+            <dl className="mt-4 space-y-3 rounded-sm border border-edge bg-bg p-3 text-sm">
+              <div><dt className="text-xs uppercase tracking-wide text-muted">Target</dt><dd className="mt-1 font-mono text-ink">{target.label}</dd></div>
+              <div><dt className="text-xs uppercase tracking-wide text-muted">Configured command</dt><dd className="mt-1 break-words font-mono text-ink">{String(payload.command ?? "Command unavailable")}</dd></div>
+            </dl>
+            <div className="mt-5 flex justify-end gap-2">
+              <button className="inline-flex items-center justify-center h-8 px-3 rounded-sm border border-edge text-sm text-muted hover:bg-surface-2" onClick={() => setConfirmingLaunch(false)}>Cancel</button>
+              <button className="inline-flex items-center justify-center gap-2 h-8 px-3 rounded-sm bg-primary text-sm text-white hover:bg-primary-hover disabled:opacity-50" disabled={running} onClick={async () => { setConfirmingLaunch(false); await runNow(); }}>
+                <Play size={14} /> Dispatch to this target
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
