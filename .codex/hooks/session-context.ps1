@@ -19,17 +19,25 @@ try {
 
     $context = Get-Content -LiteralPath $contextPath -Raw
     $todo = Get-Content -LiteralPath $todoPath -Raw
+    # Keep stable context, then include only tracker rows that still need action.
+    # DONE history remains available in the source file without consuming every resume.
+    $actionableRows = ($todo -split "`r?`n") |
+        Where-Object { $_ -match '\|\s*(TODO|IN PROGRESS|BLOCKED)\s*\|' }
+    $actionable = if ($actionableRows) {
+        "`nACTIONABLE TRACKER ROWS`n" + ($actionableRows -join "`n")
+    } else {
+        "`nACTIONABLE TRACKER ROWS`n(none recorded)"
+    }
+
     $brief = @"
 Axon continuity checkpoint. Sol is the default executor; use architecture_astra before shared contracts, auth/tenant boundaries, retry semantics, destructive workflows, public promises, and for final acceptance of security-sensitive changes.
 
 ACTIVE CONTEXT
 $context
 
-LIVE TRACKER
-$todo
+$actionable
 "@
-
-    $maxCharacters = 6500
+    $maxCharacters = 5600
     if ($brief.Length -gt $maxCharacters) {
         $suffix = "`n[Checkpoint truncated; open the two source files for the omitted detail.]"
         $brief = $brief.Substring(0, $maxCharacters - $suffix.Length) + $suffix
