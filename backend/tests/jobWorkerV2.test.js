@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   auditUpdate: vi.fn(),
   setState: vi.fn(),
   acquireSlot: vi.fn(),
+  releaseLock: vi.fn(),
   publishLogChunk: vi.fn(),
   findUser: vi.fn(),
   findJob: vi.fn(),
@@ -51,7 +52,7 @@ vi.mock("../services/jobRunService.js", () => ({
   markRunAcknowledged: mocks.acknowledged,
 }));
 vi.mock("../services/distributedLock.js", () => ({
-  releaseJobLock: vi.fn(),
+  releaseJobLock: mocks.releaseLock,
 }));
 vi.mock("../services/dagStateManager.js", () => ({
   acquireExecutionSlot: mocks.acquireSlot,
@@ -178,6 +179,37 @@ describe("job worker protocol-v2 behavior", () => {
     expect(mocks.historyCreate).toHaveBeenCalledWith(
       expect.objectContaining({ exitCode }),
     );
+    expect(mocks.acquireSlot).toHaveBeenCalledWith(
+      `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
+      "immediate-jobs:bull-1",
+      expect.any(Number),
+    );
+    expect(mocks.releaseLock).toHaveBeenCalledWith(
+      `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
+      "immediate-jobs:bull-1",
+    );
+  });
+
+  it("rejects a distinct job while the same target resource is occupied", async () => {
+    mocks.acquireSlot.mockResolvedValue({
+      acquired: false,
+      fencingToken: null,
+      existingWorker: "scheduled-jobs:other-job",
+    });
+    await expect(
+      jobProcessor(queueJob({ ...DATA, jobId: "507f1f77bcf86cd799439099" })),
+    ).rejects.toMatchObject({ code: "CONCURRENT_TARGET_EXECUTION" });
+    expect(mocks.acquireSlot).toHaveBeenCalledWith(
+      `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
+      "immediate-jobs:bull-1",
+      expect.any(Number),
+    );
+    expect(mocks.complete).toHaveBeenCalledWith(
+      DATA.runId,
+      DATA.attemptId,
+      expect.objectContaining({ reasonCode: "CONCURRENT_TARGET_EXECUTION" }),
+    );
+    expect(mocks.dispatch).not.toHaveBeenCalled();
   });
 
   it("records a lost acknowledgment as UNKNOWN and fails without redispatch", async () => {
@@ -195,12 +227,35 @@ describe("job worker protocol-v2 behavior", () => {
       DATA.attemptId,
       expect.objectContaining({ status: "UNKNOWN" }),
     );
+    expect(mocks.releaseLock).not.toHaveBeenCalled();
+  });
+
+  it("releases the target lock when dispatch is proven not emitted", async () => {
+    const error = Object.assign(new Error("emit failed"), { code: "DISPATCH_EMIT_FAILED" });
+    mocks.dispatch.mockReturnValue({
+      emitted: false,
+      ackPromise: Promise.reject(error),
+      resultPromise: Promise.reject(error),
+    });
+
+    await expect(jobProcessor(queueJob())).rejects.toMatchObject({
+      code: "DISPATCH_EMIT_FAILED",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      DATA.runId,
+      DATA.attemptId,
+      expect.objectContaining({ status: "REJECTED", outcome: "REJECTED" }),
+    );
+    expect(mocks.releaseLock).toHaveBeenCalledWith(
+      `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
+      "immediate-jobs:bull-1",
+    );
   });
 
   it("rejects a distinct accepted run when the job execution slot is already held", async () => {
     mocks.acquireSlot.mockResolvedValue({ acquired: false, existingWorker: "other-worker" });
     await expect(jobProcessor(queueJob())).rejects.toMatchObject({
-      code: "CONCURRENT_JOB_EXECUTION",
+      code: "CONCURRENT_TARGET_EXECUTION",
       runId: DATA.runId,
     });
     expect(mocks.claim).toHaveBeenCalledOnce();
@@ -210,10 +265,11 @@ describe("job worker protocol-v2 behavior", () => {
       expect.objectContaining({
         status: "REJECTED",
         outcome: "REJECTED",
-        reasonCode: "CONCURRENT_JOB_EXECUTION",
+        reasonCode: "CONCURRENT_TARGET_EXECUTION",
       }),
     );
     expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.releaseLock).not.toHaveBeenCalled();
   });
 
   it("marks the outcome UNKNOWN when acknowledgment persistence fails", async () => {
@@ -235,6 +291,28 @@ describe("job worker protocol-v2 behavior", () => {
         reasonCode: "EXECUTION_STATE_PERSISTENCE_UNKNOWN",
       }),
     );
+    expect(mocks.releaseLock).not.toHaveBeenCalled();
+  });
+
+  it("retains the target lock when a result is lost after acknowledgment", async () => {
+    const error = Object.assign(new Error("result lost"), {
+      code: "EXECUTION_RESULT_UNKNOWN",
+    });
+    mocks.dispatch.mockReturnValue({
+      emitted: true,
+      ackPromise: Promise.resolve({}),
+      resultPromise: Promise.reject(error),
+    });
+
+    await expect(jobProcessor(queueJob())).rejects.toMatchObject({
+      code: "EXECUTION_RESULT_UNKNOWN",
+    });
+    expect(mocks.complete).toHaveBeenCalledWith(
+      DATA.runId,
+      DATA.attemptId,
+      expect.objectContaining({ status: "UNKNOWN", outcome: "UNKNOWN" }),
+    );
+    expect(mocks.releaseLock).not.toHaveBeenCalled();
   });
 
   it("preserves a successful run when live output publication fails", async () => {
@@ -302,6 +380,7 @@ describe("job worker protocol-v2 behavior", () => {
         exitCode,
       }),
     );
+    expect(mocks.releaseLock).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -321,6 +400,10 @@ describe("job worker protocol-v2 behavior", () => {
       expect.objectContaining({ status: "REJECTED", outcome: "REJECTED" }),
     );
     expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.releaseLock).toHaveBeenCalledWith(
+      `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
+      "immediate-jobs:bull-1",
+    );
   });
 
   it("does not dispatch a redelivered attempt that was already claimed", async () => {

@@ -32,6 +32,10 @@ import { sendJobNotification } from "../services/notificationService.js";
 import { isWithinExecutionWindow } from "../utils/executionWindow.js";
 import { hasResourceAccess } from "../middlewares/jwt.js";
 import { getExecutionPolicyViolation } from "../services/executionPolicy.js";
+import {
+  buildExecutionResourceKey,
+  calculateExecutionLockTtlSeconds,
+} from "../services/executionResource.js";
 import { buildSinkPayload } from "../utils/sinkFormat.js";
 import {
   FLUSH_AGENT_TELEMETRY_JOB_NAME,
@@ -211,6 +215,12 @@ export const jobProcessor = async (job) => {
   let runCompleted = false;
   const startTime = Date.now();
   const workerId = `${job.queueName}:${job.id}`;
+  const executionResourceKey = buildExecutionResourceKey({ orgId, targetAgentId, jobId });
+  const executionLockTtlSeconds = calculateExecutionLockTtlSeconds({
+    timeoutMs,
+    startBefore,
+    now: startTime,
+  });
   const auditRecord = await createAuditRecord({
     jobId,
     orgId,
@@ -232,7 +242,11 @@ export const jobProcessor = async (job) => {
   if (job.data?.__testHooks?.afterAuditCreated) {
     await job.data.__testHooks.afterAuditCreated(auditRecord);
   }
-  const executionSlot = await acquireExecutionSlot(jobId, workerId);
+  const executionSlot = await acquireExecutionSlot(
+    executionResourceKey,
+    workerId,
+    executionLockTtlSeconds,
+  );
   const { fencingToken } = executionSlot;
 
   if (!executionSlot.acquired) {
@@ -261,7 +275,7 @@ export const jobProcessor = async (job) => {
       await completeRun(runId, attemptId, {
         status: "REJECTED",
         outcome: "REJECTED",
-        reasonCode: "CONCURRENT_JOB_EXECUTION",
+        reasonCode: "CONCURRENT_TARGET_EXECUTION",
       });
       await safeUpdateAuditRecord(
         auditId,
@@ -269,22 +283,22 @@ export const jobProcessor = async (job) => {
           status: "CANCELLED",
           completedAt: new Date(),
           durationMs: Date.now() - startTime,
-          stderrSummary: "Another run of this job is already executing",
+          stderrSummary: "Another operation is already executing on this target",
         },
         jobLogger,
       );
       const lockError = new UnrecoverableError(
-        "Another run of this job is already executing",
+        "Another operation is already executing on this target",
       );
-      lockError.code = "CONCURRENT_JOB_EXECUTION";
+      lockError.code = "CONCURRENT_TARGET_EXECUTION";
       lockError.runId = runId;
       lockError.attemptId = attemptId;
       throw lockError;
     }
 
     jobLogger.warn(
-      { jobId, existingWorker: executionSlot.existingWorker },
-      "Job lock already held; skipping duplicate dispatch",
+      { jobId, executionResourceKey, existingWorker: executionSlot.existingWorker },
+      "Target resource lock already held; skipping duplicate dispatch",
     );
     await safeUpdateAuditRecord(
       auditId,
@@ -292,7 +306,7 @@ export const jobProcessor = async (job) => {
         status: "CANCELLED",
         completedAt: new Date(),
         durationMs: Date.now() - startTime,
-        stderrSummary: "Job lock already held; skipped duplicate dispatch",
+        stderrSummary: "Target resource lock already held; skipped duplicate dispatch",
       },
       jobLogger,
     );
@@ -738,7 +752,14 @@ export const jobProcessor = async (job) => {
 
     return { status, jobId, runId, attemptId, duration };
   } finally {
-    await releaseJobLock(jobId, workerId);
+    if (status === "unknown") {
+      jobLogger.warn(
+        { executionResourceKey, executionLockTtlSeconds, reasonCode },
+        "Retaining target resource lock until expiry because execution outcome is unknown",
+      );
+    } else {
+      await releaseJobLock(executionResourceKey, workerId);
+    }
   }
 };
 

@@ -343,40 +343,29 @@ describe("full job lifecycle e2e", () => {
     expect(socket.emittedCommands).toHaveLength(0);
   });
 
-  it("Duplicate job dispatch is prevented by distributed lock", async () => {
+  it("A second accepted run is rejected while its target resource is occupied", async () => {
     const session = await createUserAndOrg("duplicate");
-    await registerAgent(session, "duplicate-socket");
-    const socket = new MockSocket();
+    const registered = await registerAgent(session, "duplicate-socket");
+    const socket = new MockSocket(registered.agentId, session.user.orgId);
     modules.worker.configureJobWorker({
       sockets: { sockets: new Map([["duplicate-socket", socket]]) },
     });
 
-    const job = await createShellJob(session.token);
+    const job = await createShellJob(session.token, {
+      targetAgentId: registered.agentId,
+    });
+    const triggerResponse = await request(app)
+      .post(`/jobs/runJobNow/${job._id}`)
+      .set("Authorization", auth(session.token));
+    expect(triggerResponse.status).toBe(200);
 
-    await modules.distributedLock.acquireJobLock(job._id);
-    const result = await modules.worker.jobProcessor({
-      id: "duplicate-attempt",
-      name: "dispatch-job",
-      queueName: "immediate-jobs",
-      data: {
-        jobId: job._id,
-        payload: job.payload,
-        orgId: job.orgId,
-        triggeredBy: {
-          userId: session.user._id,
-          ipAddress: "127.0.0.1",
-          userAgent: "vitest",
-        },
-        triggerType: "MANUAL_API",
-        dependsOn: [],
-      },
+    const resourceKey = `org:${String(job.orgId)}:agent:${registered.agentId}`;
+    await modules.distributedLock.acquireJobLock(resourceKey, "existing-worker", 375);
+    await expect(modules.worker.jobProcessor(latestImmediateJob())).rejects.toMatchObject({
+      code: "CONCURRENT_TARGET_EXECUTION",
+      runId: triggerResponse.body.runId,
     });
 
-    expect(result).toEqual({
-      status: "skipped",
-      jobId: job._id,
-      reason: "lock-held",
-    });
     expect(socket.emittedCommands).toHaveLength(0);
     await expect(modules.AuditLog.countDocuments({ jobId: job._id })).resolves.toBe(1);
   });

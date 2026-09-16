@@ -62,6 +62,6 @@ export async function checkDependenciesMet(jobId, dependencyIds = []) {
   };
 }
 
-export async function acquireExecutionSlot(jobId, workerId, ttlSeconds = 60) {
-  return acquireJobLock(jobId, workerId, ttlSeconds);
+export async function acquireExecutionSlot(resourceKey, workerId, ttlSeconds = 60) {
+  return acquireJobLock(resourceKey, workerId, ttlSeconds);
 }
