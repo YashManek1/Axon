@@ -1,0 +1,28 @@
+{
+  "approval": {
+    "approval_expires_at": null,
+    "approved_at": null,
+    "approved_by": null,
+    "status": "pending"
+  },
+  "batch_id": "first-client-zero-qualified-2026-09-16",
+  "capabilities": {
+    "can_access_mailbox": false,
+    "can_access_provider": false,
+    "can_load_credentials": false,
+    "can_send": false
+  },
+  "items": [],
+  "manifest_sha256": "db898eaa5c54ca86be9beda0fb9b5c42bd338a1922d45d2a2c0af2063a43c8e8",
+  "mode": "dry_run",
+  "prepared_at": "2026-09-16T18:00:00+05:30",
+  "profile": "axon_b2b",
+  "schema_version": 1,
+  "suppression": {
+    "checked": false,
+    "checked_at": null,
+    "reason": "No organization met the 7/10 cold-outreach threshold after first-party public-source review.",
+    "status": "not_applicable_no_recipients"
+  },
+  "zero_recipient_reason": "No organization met the 7/10 cold-outreach threshold after first-party public-source review."
+}
