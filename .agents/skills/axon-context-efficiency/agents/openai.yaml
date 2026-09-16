@@ -1,0 +1,4 @@
+interface:
+  display_name: "Axon Context Efficiency"
+  short_description: "Bound reads, outputs and delegation overhead"
+  default_prompt: "Use $axon-context-efficiency to keep this Axon task concise and evidence-backed."
