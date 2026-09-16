@@ -1,9 +1,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('Snapshot', 'Backend', 'Frontend', 'Agent')]
+    [ValidateSet('Snapshot', 'Backend', 'Frontend', 'FrontendFocused', 'Agent')]
     [string] $Check,
     [string[]] $BackendTests = @(),
+    [string[]] $FrontendTests = @(),
     [switch] $SkipRedisPreflight,
     [ValidateRange(1, 3600)]
     [int] $CommandTimeoutSeconds = 600
@@ -20,14 +21,30 @@ $textLog = Join-Path $evidenceRoot ($baseName + '.log')
 $jsonLog = Join-Path $evidenceRoot ($baseName + '.json')
 New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
 
+function Get-FingerprintScope {
+    param([Parameter(Mandatory)][string] $CheckName)
+    switch ($CheckName) {
+        'Backend' { @('backend', 'scripts/codex/axon-check.ps1') }
+        'Frontend' { @('frontend', 'scripts/codex/axon-check.ps1') }
+        'FrontendFocused' { @('frontend', 'scripts/codex/axon-check.ps1') }
+        'Agent' { @('agent', 'scripts/codex/axon-check.ps1') }
+        default { @('backend', 'frontend', 'agent', 'scripts/codex/axon-check.ps1', 'AGENTS.md', 'docker-compose.yml', 'docker-compose.prod.yml') }
+    }
+}
+
 function Get-SourceFingerprint {
+    param([Parameter(Mandatory)][string[]] $Scope)
     $skipDirs = @('.git', '.codex', '.agents', '.claude', '.cursor', '.gemini', '.kiro', '.qoder', '.serena', '.vscode', '.antigravitycli', '.playwright-mcp', '.code-review-graph', 'node_modules', 'target', 'dist', 'coverage', 'graphify-out', 'logs', 'private')
     $names = @('package.json', 'package-lock.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'yarn.lock', 'Cargo.toml', 'Cargo.lock', 'tsconfig.json', 'vite.config.js', 'vite.config.ts', 'vitest.config.js', 'vitest.config.ts')
     $extensions = @('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json', '.rs', '.toml', '.ps1', '.yml', '.yaml', '.css', '.scss', '.html')
     $files = [Collections.Generic.List[IO.FileInfo]]::new()
 
-    foreach ($rootName in @('backend', 'frontend', 'agent', 'scripts')) {
-        $sourceRoot = Join-Path $projectRoot $rootName
+    foreach ($scopeItem in $Scope) {
+        $sourceRoot = Join-Path $projectRoot $scopeItem
+        if (Test-Path -LiteralPath $sourceRoot -PathType Leaf) {
+            $files.Add((Get-Item -LiteralPath $sourceRoot))
+            continue
+        }
         if (-not (Test-Path -LiteralPath $sourceRoot -PathType Container)) { continue }
         $pending = [Collections.Generic.Stack[string]]::new()
         $pending.Push($sourceRoot)
@@ -43,11 +60,6 @@ function Get-SourceFingerprint {
             }
         }
     }
-    foreach ($rootName in @('AGENTS.md', 'docker-compose.yml', 'docker-compose.prod.yml')) {
-        $rootFile = Join-Path $projectRoot $rootName
-        if (Test-Path -LiteralPath $rootFile -PathType Leaf) { $files.Add((Get-Item -LiteralPath $rootFile)) }
-    }
-
     $hash = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
     try {
         foreach ($file in ($files | Sort-Object FullName -Unique)) {
@@ -144,7 +156,8 @@ function Invoke-RecordedCommand {
 }
 
 $startedUtc = (Get-Date).ToUniversalTime()
-$fingerprintBefore = Get-SourceFingerprint
+$fingerprintScope = @(Get-FingerprintScope -CheckName $Check)
+$fingerprintBefore = Get-SourceFingerprint -Scope $fingerprintScope
 $commands = [Collections.Generic.List[object]]::new()
 $exitCode = 0
 $status = 'passed'
@@ -182,6 +195,15 @@ try {
                 if ($exitCode -ne 0) { break }
             }
         }
+        'FrontendFocused' {
+            if ($FrontendTests.Count -eq 0) {
+                throw 'FrontendFocused requires at least one -FrontendTests path.'
+            }
+            $result = Invoke-RecordedCommand npm.cmd (@('test', '--', '--run') + $FrontendTests) (Join-Path $projectRoot 'frontend')
+            $commands.Add($result)
+            $exitCode = [int]$result.exitCode
+            $note = 'Focused frontend mode runs selected tests only; use Frontend for the full test, lint and build gate.'
+        }
         'Agent' {
             foreach ($arguments in @(@('test', '--offline'), @('clippy', '--offline', '--', '-D', 'warnings'))) {
                 $result = Invoke-RecordedCommand cargo.exe $arguments (Join-Path $projectRoot 'agent')
@@ -199,7 +221,7 @@ catch {
     Add-Content -LiteralPath $textLog -Value $note -Encoding utf8
 }
 
-$fingerprintAfter = Get-SourceFingerprint
+$fingerprintAfter = Get-SourceFingerprint -Scope $fingerprintScope
 $invalidated = $fingerprintBefore -ne $fingerprintAfter
 if ($invalidated) {
     if ($exitCode -eq 0) { $exitCode = 73 }
@@ -209,7 +231,7 @@ if ($invalidated) {
 }
 elseif ($exitCode -ne 0) { $status = 'failed' }
 
-$record = [ordered]@{ schemaVersion = 1; check = $Check; status = $status; exitCode = $exitCode; startedUtc = $startedUtc.ToString('o'); endedUtc = (Get-Date).ToUniversalTime().ToString('o'); projectRoot = $projectRoot; sourceFingerprint = $fingerprintBefore; endingSourceFingerprint = $fingerprintAfter; sourceChangedDuringCheck = $invalidated; commands = @($commands); note = $note; textLog = $textLog }
+$record = [ordered]@{ schemaVersion = 1; check = $Check; status = $status; exitCode = $exitCode; startedUtc = $startedUtc.ToString('o'); endedUtc = (Get-Date).ToUniversalTime().ToString('o'); projectRoot = $projectRoot; fingerprintScope = $fingerprintScope; sourceFingerprint = $fingerprintBefore; endingSourceFingerprint = $fingerprintAfter; sourceChangedDuringCheck = $invalidated; commands = @($commands); note = $note; textLog = $textLog }
 $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jsonLog -Encoding utf8
 Write-Output "Axon $Check check: $status (exit $exitCode)"
 Write-Output "fingerprint: $fingerprintBefore"

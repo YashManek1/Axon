@@ -29,19 +29,28 @@ try {
         "`nACTIONABLE TRACKER ROWS`n(none recorded)"
     }
 
-    $brief = @"
+    $prefix = @"
 Axon continuity checkpoint. Sol is the default executor; use architecture_astra before shared contracts, auth/tenant boundaries, retry semantics, destructive workflows, public promises, and for final acceptance of security-sensitive changes.
 
-ACTIVE CONTEXT
-$context
-
 $actionable
+
+ACTIVE CONTEXT
 "@
     $maxCharacters = 5600
-    if ($brief.Length -gt $maxCharacters) {
-        $suffix = "`n[Checkpoint truncated; open the two source files for the omitted detail.]"
-        $brief = $brief.Substring(0, $maxCharacters - $suffix.Length) + $suffix
+    $suffix = "`n[Active context truncated; open docs/AXON-CONTEXT.md for omitted detail.]"
+    $contextBudget = [Math]::Max(0, $maxCharacters - $prefix.Length - $suffix.Length)
+    $boundedContext = if ($context.Length -le $contextBudget) {
+        $context
+    } elseif ($contextBudget -gt 0) {
+        $context.Substring(0, $contextBudget) + $suffix
+    } else {
+        $suffix.TrimStart()
     }
+    $brief = $prefix + $boundedContext
+
+    # If actionable rows alone eventually exceed the total ceiling, fail closed
+    # to a bounded payload. Under normal growth only ACTIVE CONTEXT is trimmed.
+    if ($brief.Length -gt $maxCharacters) { $brief = $brief.Substring(0, $maxCharacters) }
 
     [ordered]@{
         hookSpecificOutput = [ordered]@{

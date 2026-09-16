@@ -26,17 +26,25 @@ process.env.EMAIL_SMTP_PASS = "";
 process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "";
 process.env.OTEL_EXPORTER_OTLP_HEADERS = "";
 
-// When no external URI is provided, set a placeholder so that environment.js
-// Zod validation passes at module-import time. beforeAll overwrites it below.
+// When no external URI is provided, use an RFC-reserved, non-resolving host so
+// environment.js can validate at module-import time without ever pointing at a
+// developer MongoDB. beforeAll replaces it only after the memory server starts.
 if (!externalMongoUri) {
-  process.env.MONGO_URI = "mongodb://127.0.0.1:27017/axon-test-bootstrap";
+  process.env.MONGO_URI = "mongodb://axon-test-bootstrap.invalid/axon-test-bootstrap";
 }
 
 beforeAll(async () => {
   if (externalMongoUri) {
     process.env.MONGO_URI = externalMongoUri;
   } else {
-    mongoServer = await MongoMemoryServer.create();
+    try {
+      mongoServer = await MongoMemoryServer.create();
+    } catch (error) {
+      throw new Error(
+        "MongoMemoryServer failed to start; refusing to fall back to any local MongoDB",
+        { cause: error },
+      );
+    }
     process.env.MONGO_URI = mongoServer.getUri();
   }
 
