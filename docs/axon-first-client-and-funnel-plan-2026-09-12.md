@@ -4,6 +4,8 @@ Updated 12 September 2026. Owner: Yash. Product, claims, security and final acce
 
 This is a **plan-only** commercial operating document. No message was sent, no campaign or daemon was started, and no mailbox, `.env`, contact workbook, or customer system was accessed. Buyer action cannot be guaranteed. The 48-hour sprint creates a qualified pipeline and concrete asks; it cannot promise a client by a deadline.
 
+The 16 September packet extension adds a public-data research shortlist, a Desktop outreach quarantine/adapter plan, and a pre-send approval checklist in [`docs/outreach/`](outreach/). These are planning artifacts; every external action remains pending Yash’s explicit approval.
+
 Technical scope and claims must match the [Axon context](AXON-CONTEXT.md), [live tracker](AXON-LIVE-TODO.md), [technical completion plan](axon-technical-completion-plan-2026-09-12.md), [current product plan](axon-current-product-plan-2026-09-09.md), and [execution contract](axon-execution-contract-v2.md).
 
 ## Commercial decision
@@ -61,6 +63,8 @@ Use one small table or database; do not treat an email-sending log as the CRM.
 Required fields: `account_id`, organization/name/domain/geography/size band, segment, source/provenance URL and observed date, evidence quote or paraphrase, candidate runbook, current alternative, score with reasons, exclusion reason, buyer name/role and public business route, referral source, jurisdiction and recipient entity type, lawful/compliance basis status, last verified date, claim ledger, placeholder check, message version, batch manifest/hash/approver, provider/message IDs, delivery/bounce/reply/opt-out events, suppression status/reason, every state timestamp, owner, next action/date, discovery facts, scope/version, price, payment/PO state, delivery date, and loss reason.
 
 Do not fill unknown facts by inference. Keep them `unknown` and ask during discovery.
+
+The initial public-data candidates and their evidence are recorded in [`docs/outreach/first-client-public-research-shortlist-2026-09-16.md`](outreach/first-client-public-research-shortlist-2026-09-16.md). A candidate is not a lead ready for contact until a human verifies the organization, route, recipient entity category, jurisdiction, and current evidence.
 
 ## Ten-point account score
 
@@ -229,3 +233,5 @@ Track counts and conversion by source: accounts researched/qualified, warm reque
 - Stop pursuing an account on objection, no safe environment, no budget path, sufficient incumbent, exclusion fit, or two unanswered follow-ups. Record the reason and suppress when required.
 
 Yash owns every outbound approval, buyer conversation, proposal, and payment decision. Astra approves product claims and any future `axon_b2b` sending/security gate. No automation, volume target, weekend deadline, or revenue need overrides recipient choice, compliance, suppression, or truthful capability boundaries.
+
+The exact boundary and phased adapter for the quarantined Desktop tool are in [`docs/outreach/desktop-outreach-integration-plan-2026-09-16.md`](outreach/desktop-outreach-integration-plan-2026-09-16.md). The human sign-off record for any future batch is [`docs/outreach/pre-send-approval-checklist-2026-09-16.md`](outreach/pre-send-approval-checklist-2026-09-16.md).
