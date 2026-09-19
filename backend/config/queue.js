@@ -3,6 +3,7 @@ import Redis from "ioredis";
 import { environment } from "./environment.js";
 import { createChildLogger } from "./logger.js";
 import { queueDepth } from "../metrics.js";
+import { recoverStaleManualRuns } from "../services/jobRunService.js";
 
 const logger = createChildLogger({ module: "queue" });
 
@@ -97,6 +98,23 @@ function startQueueDepthCollector() {
   interval.unref();
 }
 
+export async function runManualRunRecovery() {
+  try {
+    const summary = await recoverStaleManualRuns(immediateJobsQueue);
+    if (summary.enqueued || summary.restored || summary.unknown || summary.errors) {
+      logger.info({ summary }, "Completed manual run recovery scan");
+    }
+    return summary;
+  } catch (err) {
+    logger.error({ err }, "Manual run recovery scan failed closed");
+    return null;
+  }
+}
+
+if (environment.NODE_ENV !== "test") {
+  const recoveryInterval = setInterval(runManualRunRecovery, 30_000);
+  recoveryInterval.unref();
+}
 startQueueDepthCollector();
 
 export { redisConnection, scheduledJobsQueue, immediateJobsQueue };

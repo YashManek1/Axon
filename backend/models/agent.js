@@ -53,6 +53,11 @@ const AgentSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    connectionGeneration: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     status: {
       type: String,
       enum: ["online", "offline", "busy"],

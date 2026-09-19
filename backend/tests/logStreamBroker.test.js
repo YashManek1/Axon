@@ -115,6 +115,8 @@ describe("logStreamBroker", () => {
     expect(JSON.parse(stored[0])).toEqual({
       jobId: "job-1",
       orgId: "org-1",
+      streamId: "job-1",
+      sequence: 1,
       stream: "stdout",
       line: "hello",
       timestampMs: 1,
@@ -177,6 +179,8 @@ describe("logStreamBroker", () => {
     expect(matchingSocket.emit).toHaveBeenCalledExactlyOnceWith("log_chunk", {
       jobId: String(job._id),
       orgId: String(org._id),
+      streamId: String(job._id),
+      sequence: 1,
       stream: "stderr",
       line: "warning",
       timestampMs: 3,
@@ -205,11 +209,18 @@ describe("logStreamBroker", () => {
         {
           jobId: String(job._id),
           orgId: String(org._id),
+          streamId: String(job._id),
+          sequence: 1,
           stream: "stdout",
           line: "buffered",
           timestampMs: 4,
         },
       ],
+      cursor: 1,
+      gap: false,
+      expired: false,
+      availability: "AVAILABLE",
+      reasonCode: null,
     });
   });
 
@@ -378,5 +389,51 @@ describe("logStreamBroker", () => {
     const freshSocket = createSocket(user, { sessionToken: expiredToken });
     await expect(subscribe(freshSocket, job)).rejects.toThrow("jwt expired");
     expect(freshSocket.join).not.toHaveBeenCalled();
+  });
+
+  it("reports unavailable evidence explicitly when a stream never existed", async () => {
+    await expect(logStreamBroker.getLogEvidence("missing-stream", 100, 0)).resolves.toMatchObject({
+      logs: [],
+      gap: false,
+      expired: false,
+      availability: "UNAVAILABLE",
+      reasonCode: "LOG_EVIDENCE_UNAVAILABLE",
+    });
+  });
+
+  it("reports an explicit gap when retained sequence evidence is discontinuous", async () => {
+    await logStreamBroker.publishLogChunk("gap-stream", "org-1", { line: "one" });
+    await logStreamBroker.publishLogChunk("gap-stream", "org-1", { line: "two" });
+    await logStreamBroker.publishLogChunk("gap-stream", "org-1", { line: "three" });
+    const entries = (await redisConnection.lrange("log:stream:gap-stream", 0, -1))
+      .map((entry) => JSON.parse(entry))
+      .filter((entry) => entry.sequence !== 2);
+    await redisConnection.del("log:stream:gap-stream");
+    await redisConnection.rpush(
+      "log:stream:gap-stream",
+      ...entries.map((entry) => JSON.stringify(entry)),
+    );
+
+    await expect(logStreamBroker.getLogEvidence("gap-stream", 100, 0)).resolves.toMatchObject({
+      gap: true,
+      expired: false,
+      availability: "AVAILABLE",
+      reasonCode: "LOG_CURSOR_GAP",
+      lastSequence: 3,
+    });
+  });
+
+  it("distinguishes expired retained logs from a stream that never existed", async () => {
+    await logStreamBroker.publishLogChunk("expired-stream", "org-1", { line: "gone" });
+    await redisConnection.del("log:stream:expired-stream");
+
+    await expect(logStreamBroker.getLogEvidence("expired-stream")).resolves.toMatchObject({
+      logs: [],
+      gap: true,
+      expired: true,
+      availability: "EXPIRED",
+      reasonCode: "LOG_EVIDENCE_EXPIRED",
+      lastSequence: 1,
+    });
   });
 });

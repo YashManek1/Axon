@@ -38,6 +38,7 @@ export async function flushAgentTelemetry() {
             _id: agentId,
             decommissionedAt: null,
             socketId: telemetry.socketId,
+            connectionGeneration: Number(telemetry.connectionGeneration),
             ...generationFilter(telemetry.tokenVersion),
           },
           update: {

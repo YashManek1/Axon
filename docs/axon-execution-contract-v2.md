@@ -17,6 +17,22 @@ Verification on the stabilized source passed:
 
 The acceptance excludes durable restart recovery, an agent execution journal, reconciliation, safe retries, full Linux descendant/process-group termination, resource-level exclusion, guaranteed audit/output durability during infrastructure outages, real fleet installation and paid-pilot readiness. Explicit `legacy` mode retains the old outbound execution surface, and SMTP status notifications remain available; pilot containment is specifically for HTTP jobs, execution webhooks and external result sinks. A terminal database write that persistently fails can leave the JobRun nonterminal while audit/history records persistence uncertainty; the recovery worker remains required.
 
+## Astra decision — bounded recovery durability (16 September 2026)
+
+The current single-target pilot will use a bounded transition journal embedded in each `JobRun`. Every transition has a monotonic sequence, timestamp, reason and relevant queue/evidence identity, and updates use an expected-prior-state comparison. This keeps one run's durable state atomic on the standalone MongoDB topology currently used by the project; a separate event/outbox collection is deferred until Axon adopts a transaction-capable topology and needs cross-document workflows.
+
+MongoDB owns run transitions and the terminal summary. Redis/BullMQ may carry work and bounded live evidence, but neither is accepted as the durable business record. Redis log loss, expiry or cursor gaps must be returned explicitly rather than displayed as an empty successful history.
+
+Recovery is deliberately asymmetric:
+
+- a stale `ACCEPTED` run may be enqueued once with deterministic queue identity `attemptId`, after checking whether that item already exists;
+- a `QUEUED` run whose queue item is definitely missing becomes `UNKNOWN` and is not replayed;
+- a `DISPATCHING` or `ACKNOWLEDGED` run without conclusive evidence becomes `UNKNOWN` / `needs_review` and is not replayed;
+- a failed or unverifiable persistence transition fails closed and never authorizes another external effect;
+- late acknowledgments or results cannot replace an existing terminal state.
+
+This milestone does not create general retry semantics or claim exactly-once effects. A durable Rust agent execution journal remains a separate release requirement. Until it exists, uncertain agent-side execution is reconciled as `UNKNOWN`, with operator review required.
+
 ## The simple explanation
 
 Imagine your company has three servers: `demo-web`, `production-web`, and `database`. You want to check a service on `demo-web`. “Run this in my company” is insufficient information. Axon must record **which machine you chose**, verify that you may use it, and send the operation only to that machine.
@@ -136,6 +152,20 @@ Use a durable pending-dispatch intent. For a single-action run, this could live 
 
 Resource locks protect the actual thing changed, such as a service on a server, rather than only a job-definition ID. Lock expiry, lease renewal, stale holders and external fencing require explicit behavior. A number stored in a log is not enforcement at the resource. Initially constrain concurrency to the tested supported scope and avoid advertising generalized mutual exclusion until verified.
 
+### Agent connection ownership recovery
+
+MongoDB is the durable authority for an agent's monotonically increasing `connectionGeneration`. Redis stores only the current ephemeral connection owner (`socketId`, `tokenVersion` and `connectionGeneration`) and telemetry. A connection may claim an empty Redis owner or a strictly newer generation. The same generation may repeat only with the exact same socket and token, making the claim idempotent. Heartbeats, offline transitions, reads and persistence flushes require an exact three-field owner match and never claim ownership implicitly.
+
+Do not restore `agent:telemetry:*` or `agent:active:pool` independently from MongoDB. A Redis generation ahead of MongoDB fails closed because automatically deleting it while the system is live could revive a stale connection. Recovery therefore requires this supervised procedure:
+
+1. Quiesce every API, WebSocket and telemetry-worker instance so no connection can be accepted while ownership is reset.
+2. Confirm that no accepted execution depends on the cached connection; reconcile any `RUNNING` or `UNKNOWN` run from durable run and agent evidence first.
+3. Clear the Axon telemetry ownership namespace (`agent:telemetry:*` and `agent:active:pool`) in the isolated Axon Redis database. Do not use this procedure on a shared or customer Redis database.
+4. Start one matched backend/worker release and require every agent to reconnect. The reconnect atomically increments MongoDB and reclaims the empty Redis owner; a heartbeat alone cannot do so.
+5. Verify the exact socket, token version and generation in MongoDB/Redis before resuming dispatch.
+
+The same quiesce, namespace reset and reconnect sequence is required when rolling back a release that understands connection generations. Existing MongoDB records need no eager backfill: the atomic connection claim creates the generation on first reconnect. Never decrement or manually copy a Redis generation into MongoDB. Real Redis loss/restart and Redis-ahead drills remain release evidence requirements.
+
 ## Compatibility and rollout
 
 - Add protocol/capability negotiation before dispatching v2 work. Reject unsupported agents with an upgrade instruction instead of sending a partially understood message.
@@ -158,5 +188,6 @@ Resource locks protect the actual thing changed, such as a service on a server, 
 10. Lost acknowledgment, duplicate dispatch, agent restart, control-plane restart and persistence interruption follow the recovery table.
 11. A postcondition failure is visible even when the script exits zero.
 12. Unassigned legacy jobs cannot accidentally execute on an arbitrary machine after upgrade.
+13. A delayed old socket cannot overwrite a newer owner; a Redis generation ahead of MongoDB fails closed until the supervised quiesce/reset/reconnect procedure runs.
 
 Run these against actual Redis, MongoDB and the supported Linux agent as well as unit/contract tests. Save version, topology, command results and remaining limitations. The [live TODO](AXON-LIVE-TODO.md) will mark this implementation complete only after that evidence exists.

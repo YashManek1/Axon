@@ -11,8 +11,7 @@ import {
   ManualRunError,
   buildQueueData,
   createManualShellRun,
-  markQueueFailure,
-  markRunQueued,
+  enqueueManualRun,
 } from "../services/jobRunService.js";
 import { getExecutionPolicyViolation } from "../services/executionPolicy.js";
 
@@ -629,28 +628,13 @@ export const runJobNow = async (req, res) => {
     }
 
     const queueData = buildQueueData(created.run, job, created.agent);
-    try {
-      await immediateJobsQueue.add(
-        JOB_NAME,
-        queueData,
-        {
-          jobId: queueData.attemptId,
-          removeOnComplete: true,
-          removeOnFail: true,
-          attempts: 1,
-        },
-      );
-      await markRunQueued(created.run.runId);
-    } catch (queueError) {
-      await markQueueFailure(created.run.runId);
-      throw queueError;
-    }
+    const queuedRun = await enqueueManualRun(immediateJobsQueue, queueData);
     await setJobState(job._id, "QUEUED");
 
     return res.status(200).json({
       message: "Job triggered manually",
       runId: created.run.runId,
-      status: "QUEUED",
+      status: queuedRun.status,
       idempotentReplay: false,
     });
   } catch (error) {

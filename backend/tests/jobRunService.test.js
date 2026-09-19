@@ -72,6 +72,17 @@ describe("durable manual JobRun creation", () => {
     expect(first.run.runId).not.toBe(second.run.runId);
     expect(first.run.attempts[0].attemptId).not.toBe(second.run.attempts[0].attemptId);
     expect(await JobRun.countDocuments()).toBe(2);
+    expect(first.run).toMatchObject({
+      targetSocketId: agent.socketId,
+      queueJobId: first.run.attempts[0].attemptId,
+      transitionSequence: 1,
+    });
+    expect(first.run.transitions).toHaveLength(1);
+    expect(first.run.transitions[0]).toMatchObject({
+      from: null,
+      to: "ACCEPTED",
+      source: "API",
+    });
     expect(first.run.action).toMatchObject({
       actionVersion: createHash("sha256").update("echo hello", "utf8").digest("hex"),
       timeoutMs: 30_000,
@@ -169,11 +180,15 @@ describe("durable manual JobRun creation", () => {
     const created = await launch();
     await markRunQueued(created.run.runId);
     const data = buildQueueData(created.run, job, created.agent);
-    const first = await claimRunForDispatch(data);
-    const duplicate = await claimRunForDispatch(data);
-    expect(first.claimed).toBe(true);
-    expect(duplicate.claimed).toBe(false);
-    expect(duplicate.run.status).toBe("DISPATCHING");
+    const claims = await Promise.all([
+      claimRunForDispatch(data),
+      claimRunForDispatch(data),
+    ]);
+    expect(claims.filter((result) => result.claimed)).toHaveLength(1);
+    expect(claims.filter((result) => !result.claimed)).toHaveLength(1);
+    expect(claims.find((result) => !result.claimed).run.status).toBe("DISPATCHING");
+    const persisted = await JobRun.findOne({ runId: created.run.runId });
+    expect(persisted.transitions.filter((entry) => entry.to === "DISPATCHING")).toHaveLength(1);
   });
 
   it("preserves the first terminal outcome when a late result arrives", async () => {
@@ -194,7 +209,13 @@ describe("durable manual JobRun creation", () => {
       reasonCode: null,
     });
     expect(first.status).toBe("FAILED");
-    expect(late).toBeNull();
+    expect(late.status).toBe("FAILED");
+    expect(late.terminalSummary).toMatchObject({
+      status: "FAILED",
+      exitCode: 1,
+      reasonCode: "NONZERO_EXIT",
+    });
+    expect(late.transitions.filter((entry) => entry.to === "FAILED")).toHaveLength(1);
     expect((await JobRun.findOne({ runId: created.run.runId })).status).toBe("FAILED");
   });
 });

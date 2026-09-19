@@ -5,9 +5,11 @@ let redisConnection;
 let modules;
 
 class MockSocket extends EventEmitter {
-  constructor(agentId, orgId) {
+  constructor(agentId, orgId, id = "reconnect-socket") {
     super();
     this.emittedCommands = [];
+    this.id = id;
+    this.connected = true;
     this.agentId = String(agentId);
     this.orgId = String(orgId);
     this.clientType = "agent";
@@ -26,6 +28,11 @@ class MockSocket extends EventEmitter {
 
   off(eventName, listener) {
     return this.removeListener(eventName, listener);
+  }
+
+  disconnect() {
+    this.connected = false;
+    this.emit("disconnect");
   }
 }
 
@@ -50,6 +57,7 @@ beforeAll(async () => {
     { default: User },
     { default: JobRun },
     jobRuns,
+    agentLifecycle,
   ] = await Promise.all([
     import("../../workers/jobWorker.js"),
     import("../../services/dagStateManager.js"),
@@ -61,6 +69,7 @@ beforeAll(async () => {
     import("../../models/user.js"),
     import("../../models/jobRun.js"),
     import("../../services/jobRunService.js"),
+    import("../../services/agentConnectionLifecycle.js"),
   ]);
 
   modules = {
@@ -74,6 +83,7 @@ beforeAll(async () => {
     User,
     JobRun,
     jobRuns,
+    agentLifecycle,
   };
 });
 
@@ -176,15 +186,27 @@ describe("agent reconnection e2e", () => {
     });
     expect(audit.stderrSummary).toContain("disconnected");
 
+    const reconnectedSocket = new MockSocket(agent._id, org._id, "reconnect-socket-2");
+    await expect(
+      modules.agentLifecycle.attachAgentConnection(reconnectedSocket),
+    ).resolves.toBe(true);
+    const reconnectIdentity = {
+      socketId: reconnectedSocket.id,
+      tokenVersion: reconnectedSocket.authGeneration,
+      connectionGeneration: reconnectedSocket.agent.connectionGeneration,
+    };
     await modules.telemetryBuffer.recordHeartbeat(agent._id, {
       os: "linux",
       arch: "x64",
       cpuLoad: 4,
       ramTotal: 1024,
       ramUsed: 128,
-    });
+    }, reconnectIdentity);
 
-    const telemetry = await modules.telemetryBuffer.getAgentTelemetry(agent._id);
+    const telemetry = await modules.telemetryBuffer.getAgentTelemetry(
+      agent._id,
+      reconnectIdentity,
+    );
     expect(telemetry.status).toBe("ONLINE");
   });
 });

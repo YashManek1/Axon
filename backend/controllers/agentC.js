@@ -54,6 +54,7 @@ export const getAgentById = async (req, res) => {
     const telemetry = await getAgentTelemetry(req.params.agentId, {
       socketId: agent.socketId,
       tokenVersion: agent.tokenVersion ?? 0,
+      connectionGeneration: agent.connectionGeneration ?? 0,
     });
     return res.status(200).json(mergeTelemetry(agent.toObject(), telemetry));
   } catch (error) {

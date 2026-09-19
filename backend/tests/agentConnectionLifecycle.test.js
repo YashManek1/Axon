@@ -11,7 +11,11 @@ import Agent from "../models/agent.js";
 import { redisConnection } from "../config/queue.js";
 import { agentConnected } from "../metrics.js";
 import { attachAgentConnection } from "../services/agentConnectionLifecycle.js";
-import { recordHeartbeat, getAgentTelemetry } from "../services/agentTelemetryBuffer.js";
+import {
+  claimTelemetryOwner,
+  recordHeartbeat,
+  getAgentTelemetry,
+} from "../services/agentTelemetryBuffer.js";
 import { flushAgentTelemetry } from "../workers/telemetryFlushWorker.js";
 
 async function fixture({ legacy = false } = {}) {
@@ -48,13 +52,21 @@ beforeEach(async () => {
 });
 
 describe("agent connection credential lifecycle", () => {
-  it("claims a current connection and releases only that connection", async () => {
+  it("claims a current connection and releases only that generation", async () => {
     const agent = await fixture();
     const socket = connection(agent);
     await expect(attachAgentConnection(socket)).resolves.toBe(true);
-    expect(await Agent.findById(agent._id).lean()).toMatchObject({ status: "online", socketId: socket.id });
+    expect(await Agent.findById(agent._id).lean()).toMatchObject({
+      status: "online",
+      socketId: socket.id,
+      connectionGeneration: 1,
+    });
     await socket.disconnect();
-    expect(await Agent.findById(agent._id).lean()).toMatchObject({ status: "offline", socketId: null });
+    expect(await Agent.findById(agent._id).lean()).toMatchObject({
+      status: "offline",
+      socketId: null,
+      connectionGeneration: 1,
+    });
     expect(agentConnected.inc).toHaveBeenCalledTimes(1);
     expect(agentConnected.dec).toHaveBeenCalledTimes(1);
   });
@@ -72,10 +84,13 @@ describe("agent connection credential lifecycle", () => {
     expect(agentConnected.inc).not.toHaveBeenCalled();
   });
 
-  it("accepts legacy version zero without materializing a default over later rotation", async () => {
+  it("accepts legacy version zero and creates the durable connection generation", async () => {
     const agent = await fixture({ legacy: true });
     const socket = connection(agent);
     expect(await attachAgentConnection(socket)).toBe(true);
+    expect(await Agent.collection.findOne({ _id: agent._id })).toMatchObject({
+      connectionGeneration: 1,
+    });
     expect(await Agent.collection.findOne({ _id: agent._id })).not.toHaveProperty("tokenVersion");
     await Agent.updateOne({ _id: agent._id }, { $inc: { tokenVersion: 1 }, $set: { status: "offline", socketId: null } });
     await socket.disconnect();
@@ -103,8 +118,39 @@ describe("agent connection credential lifecycle", () => {
     await attachAgentConnection(first);
     await attachAgentConnection(second);
     await first.disconnect();
-    expect(await Agent.findById(agent._id).lean()).toMatchObject({ status: "online", socketId: second.id });
+    expect(await Agent.findById(agent._id).lean()).toMatchObject({
+      status: "online",
+      socketId: second.id,
+      connectionGeneration: 2,
+    });
     await second.disconnect();
+  });
+
+  it("rejects a Mongo claim when Redis already has a newer generation", async () => {
+    const agent = await fixture();
+    const socket = connection(agent);
+    await claimTelemetryOwner(String(agent._id), {
+      socketId: "newer-socket",
+      tokenVersion: 0,
+      connectionGeneration: 99,
+    });
+
+    await expect(attachAgentConnection(socket)).resolves.toBe(false);
+
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+    expect(agentConnected.inc).not.toHaveBeenCalled();
+    expect(await Agent.findById(agent._id).lean()).toMatchObject({
+      status: "offline",
+      socketId: null,
+      connectionGeneration: 1,
+    });
+    await expect(
+      redisConnection.hgetall(`agent:telemetry:${agent._id}`),
+    ).resolves.toMatchObject({
+      socketId: "newer-socket",
+      connectionGeneration: "99",
+      status: "ONLINE",
+    });
   });
 
   it("handles claim and release database errors without rejecting callbacks", async () => {
@@ -124,17 +170,35 @@ describe("agent connection credential lifecycle", () => {
       const agent = await fixture();
       const socket = connection(agent);
       await attachAgentConnection(socket);
-      await recordHeartbeat(String(agent._id), { os: "linux", arch: "x64", cpuLoad: 1, ramTotal: 100, ramUsed: 50 }, {
-        socketId: socket.id, tokenVersion: 0,
-      });
+      const identity = {
+        socketId: socket.id,
+        tokenVersion: 0,
+        connectionGeneration: socket.agent.connectionGeneration,
+      };
+      await recordHeartbeat(String(agent._id), {
+        os: "linux",
+        arch: "x64",
+        cpuLoad: 1,
+        ramTotal: 100,
+        ramUsed: 50,
+      }, identity);
       await Agent.updateOne({ _id: agent._id }, {
         $inc: { tokenVersion: 1 },
         $set: { status: "offline", socketId: null, ...(decommissioned ? { decommissionedAt: new Date() } : {}) },
       });
       const result = await flushAgentTelemetry();
       expect(result).not.toHaveProperty("error");
-      expect(await Agent.findById(agent._id).lean()).toMatchObject({ status: "offline", socketId: null, tokenVersion: 1 });
-      expect(await getAgentTelemetry(String(agent._id), { socketId: null, tokenVersion: 1 })).toBeNull();
+      expect(await Agent.findById(agent._id).lean()).toMatchObject({
+        status: "offline",
+        socketId: null,
+        tokenVersion: 1,
+        connectionGeneration: identity.connectionGeneration,
+      });
+      expect(await getAgentTelemetry(String(agent._id), {
+        socketId: null,
+        tokenVersion: 1,
+        connectionGeneration: identity.connectionGeneration,
+      })).toBeNull();
       await socket.disconnect();
     }
   });

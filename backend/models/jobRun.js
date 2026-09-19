@@ -45,6 +45,24 @@ const AttemptSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const TransitionSchema = new mongoose.Schema(
+  {
+    sequence: { type: Number, required: true, min: 1 },
+    from: { type: String, default: null },
+    to: { type: String, enum: RUN_STATUSES, required: true },
+    at: { type: Date, required: true },
+    reasonCode: { type: String, default: null },
+    source: {
+      type: String,
+      enum: ["API", "QUEUE", "WORKER", "RECOVERY"],
+      required: true,
+    },
+    queueJobId: { type: String, default: null },
+    attemptId: { type: String, default: null },
+  },
+  { _id: false },
+);
+
 const JobRunSchema = new mongoose.Schema(
   {
     runId: { type: String, required: true, unique: true, index: true },
@@ -66,6 +84,8 @@ const JobRunSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    targetSocketId: { type: String, required: true },
+    queueJobId: { type: String, required: true },
     requestKey: { type: String, default: null },
     requestFingerprint: { type: String, required: true },
     triggeredBy: {
@@ -87,6 +107,22 @@ const JobRunSchema = new mongoose.Schema(
     reasonCode: { type: String, default: null },
     queuedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
+    transitionSequence: { type: Number, required: true, default: 1, min: 1 },
+    transitions: {
+      type: [TransitionSchema],
+      required: true,
+      validate: {
+        validator: (transitions) => transitions.length > 0 && transitions.length <= 64,
+        message: "A run must retain between one and 64 transitions",
+      },
+    },
+    terminalSummary: {
+      status: { type: String, enum: RUN_STATUSES, default: null },
+      outcome: { type: String, default: null },
+      exitCode: { type: Number, default: null },
+      reasonCode: { type: String, default: null },
+      completedAt: { type: Date, default: null },
+    },
     attempts: {
       type: [AttemptSchema],
       validate: {
@@ -107,5 +143,6 @@ JobRunSchema.index(
   },
 );
 JobRunSchema.index({ orgId: 1, jobId: 1, createdAt: -1 });
+JobRunSchema.index({ status: 1, updatedAt: 1 });
 
 export default mongoose.model("JobRun", JobRunSchema);

@@ -1,6 +1,6 @@
 import Agent from "../models/agent.js";
 import { agentConnected } from "../metrics.js";
-import { markAgentOffline, recordHeartbeat } from "./agentTelemetryBuffer.js";
+import { claimTelemetryOwner, markAgentOffline, recordHeartbeat } from "./agentTelemetryBuffer.js";
 import { createChildLogger } from "../config/logger.js";
 
 const logger = createChildLogger({ module: "agent-connection" });
@@ -10,7 +10,7 @@ export async function attachAgentConnection(socket) {
   let claimed = false;
   let counted = false;
   const generation = socket.authGeneration;
-  const identity = { socketId: socket.id, tokenVersion: generation };
+  let identity = null;
   const filter = {
     _id: socket.agentId,
     orgId: socket.orgId,
@@ -29,7 +29,11 @@ export async function attachAgentConnection(socket) {
     }
     try {
       await Agent.updateOne(
-        { ...filter, socketId: socket.id },
+        {
+          ...filter,
+          socketId: socket.id,
+          connectionGeneration: identity.connectionGeneration,
+        },
         { $set: { status: "offline", socketId: null } },
       );
       await markAgentOffline(socket.agentId, identity);
@@ -43,14 +47,27 @@ export async function attachAgentConnection(socket) {
   try {
     const agent = await Agent.findOneAndUpdate(
       { ...filter, ...(socket.authApiKeyHash ? { apiKey: socket.authApiKeyHash } : {}) },
-      { $set: { status: "online", socketId: socket.id, lastSeen: new Date() } },
+      {
+        $set: { status: "online", socketId: socket.id, lastSeen: new Date() },
+        $inc: { connectionGeneration: 1 },
+      },
       { new: true },
     );
     if (!agent) {
       socket.disconnect(true);
       return false;
     }
+    identity = {
+      socketId: socket.id,
+      tokenVersion: generation,
+      connectionGeneration: agent.connectionGeneration,
+    };
     claimed = true;
+    if (!(await claimTelemetryOwner(socket.agentId, identity))) {
+      await release();
+      socket.disconnect(true);
+      return false;
+    }
     if (!socket.connected) {
       await release();
       return false;
