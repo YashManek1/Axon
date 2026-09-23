@@ -127,8 +127,10 @@ async function dispatch(db, state) {
   if (expectedOutput) {
     if (run.status !== "SUCCEEDED" || run.terminalSummary?.outcome !== "COMPLETED" || run.terminalSummary?.exitCode !== 0)
       throw new Error(`Unexpected ${scenario} result: ${JSON.stringify(summary(scenario, run))}`);
-    const history = await db.jobHistory.findOne({ runId: body.runId }).lean();
-    if (!history?.output?.stdout?.includes(expectedOutput)) throw new Error(`${scenario} stdout marker missing`);
+    await poll(`${scenario} history stdout marker`, async () => {
+      const history = await db.jobHistory.findOne({ runId: body.runId }).lean();
+      return history?.output?.stdout?.includes(expectedOutput);
+    });
   }
   if (scenario === "mismatch" && (run.status !== "REJECTED" || run.reasonCode !== "AGENT_RELEASE_MISMATCH"))
     throw new Error(`Unexpected mismatch result: ${JSON.stringify(summary(scenario, run))}`);
