@@ -31,3 +31,14 @@ python -m unittest discover -s tests -v
 ```
 
 The tracked tests use only synthetic organization data. The included zero-recipient input records the current research result without identifying or contacting anyone. A later human gate must authorize any separate contact-resolution or sender implementation.
+## Policy-first agent pipeline
+
+The pipeline adds six versioned logical roles: research, qualification, use-case selection, drafting, adversarial critique, and verification. These roles may propose work, but deterministic gates control advancement. The current implementation consumes supplied evidence only and stops at `AWAITING_HUMAN_APPROVAL`; its capability flags deny network research, personal-contact resolution, approval, and sending.
+
+Run the synthetic pipeline fixture:
+
+```powershell
+python -m axon_outreach.pipeline_cli synthetic-agent-pipeline.json
+```
+
+The output is a checksum-addressed, write-once campaign review bundle. See `docs/outreach/axon-b2b-agent-contract-v1.md` for the role contracts, authority model, commercial method, and next slices.

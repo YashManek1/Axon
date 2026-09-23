@@ -1,7 +1,8 @@
 const MAX_START_WINDOW_MS = 60_000;
 const MIN_TIMEOUT_MS = 100;
 const MAX_TIMEOUT_MS = 300_000;
-const COMPLETION_MARGIN_MS = 15_000;
+// Keep the Redis lock beyond the router result grace and terminal persistence.
+const COMPLETION_MARGIN_MS = 45_000;
 const MIN_LOCK_TTL_SECONDS = 60;
 
 export function buildExecutionResourceKey({ orgId, targetAgentId, jobId }) {

@@ -29,6 +29,12 @@ function setSocketIdentity(socket, clientType, identity, options = {}) {
       : [];
     socket.protocolVersions = protocolVersions;
     socket.data.protocolVersions = protocolVersions;
+    const releaseId =
+      typeof options.releaseId === "string"
+        ? options.releaseId.trim() || null
+        : null;
+    socket.releaseId = releaseId;
+    socket.data.releaseId = releaseId;
   }
 }
 
@@ -41,6 +47,7 @@ export async function authenticateSocket(socket, next) {
       token,
       clientType,
       protocolVersions,
+      releaseId,
     } = socket.handshake.auth;
     const sessionToken = token || getCookieValue(
       socket.handshake.headers.cookie,
@@ -62,6 +69,7 @@ export async function authenticateSocket(socket, next) {
       setSocketIdentity(socket, "agent", agent, {
         tokenVersion: payload?.tokenVersion ?? 0,
         protocolVersions,
+        releaseId,
       });
       return next();
     }
@@ -80,6 +88,7 @@ export async function authenticateSocket(socket, next) {
       tokenVersion: agent.tokenVersion ?? 0,
       apiKeyHash: agent.apiKey,
       protocolVersions,
+      releaseId,
     });
     return next();
   } catch (error) {

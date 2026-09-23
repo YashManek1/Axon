@@ -1,5 +1,5 @@
-use crate::sandbox::{build_sandboxed_command, SandboxMode};
-use serde::Serialize;
+use crate::sandbox::{build_sandboxed_command, ExecutionIdentity, SandboxMode};
+use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -25,7 +25,7 @@ pub struct CommandPayload {
     pub sandbox_mode: SandboxMode,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionOutcome {
     Completed,
@@ -34,7 +34,7 @@ pub enum ExecutionOutcome {
     Unknown,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct CommandResult {
     #[serde(rename = "protocolVersion")]
     pub protocol_version: u8,
@@ -139,21 +139,86 @@ async fn collect_output(task: &mut JoinHandle<(Vec<u8>, bool)>) -> (Vec<u8>, boo
 pub async fn execute_command(payload: CommandPayload) -> CommandResult {
     let started_at = Instant::now();
 
-    let mut child = match build_sandboxed_command(&payload.command, &payload.sandbox_mode)
+    #[cfg(unix)]
+    enable_child_subreaper();
+
+    let execution_identity = ExecutionIdentity {
+        run_id: &payload.run_id,
+        attempt_id: &payload.attempt_id,
+        target_execution_id: &payload.target_execution_id,
+    };
+    let mut sandboxed_command = match build_sandboxed_command(
+        &payload.command,
+        &payload.sandbox_mode,
+        execution_identity,
+    ) {
+        Ok(command) => command,
+        Err(error) => {
+            return CommandResult::from_payload(
+                &payload,
+                ExecutionReport {
+                    outcome: ExecutionOutcome::Rejected,
+                    exit_code: None,
+                    reason_code: Some("UNSUPPORTED_SANDBOX"),
+                    stdout: Vec::new(),
+                    stderr: error.into_bytes(),
+                    stdout_truncated: false,
+                    stderr_truncated: false,
+                },
+                started_at,
+            );
+        }
+    };
+    let mut command = match sandboxed_command.prepare().await {
+        Ok(command) => command,
+        Err(error) => {
+            return CommandResult::from_payload(
+                &payload,
+                ExecutionReport {
+                    // Docker create can become uncertain if the daemon accepted
+                    // the request but the client did not receive its response.
+                    outcome: ExecutionOutcome::Unknown,
+                    exit_code: None,
+                    reason_code: Some("CONTAINMENT_PREPARE_FAILED"),
+                    stdout: Vec::new(),
+                    stderr: error.into_bytes(),
+                    stdout_truncated: false,
+                    stderr_truncated: false,
+                },
+                started_at,
+            );
+        }
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        command.as_std_mut().process_group(0);
+    }
+
+    let mut child = match command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
     {
         Ok(child) => child,
         Err(err) => {
+            let cleanup_error = sandboxed_command.cleanup_owned().await.err();
+            let mut stderr = err.to_string().into_bytes();
+            let (outcome, reason_code) = match cleanup_error {
+                Some(error) => {
+                    append_error(&mut stderr, &format!("containment cleanup failed: {error}"));
+                    (ExecutionOutcome::Unknown, "CONTAINMENT_CLEANUP_FAILED")
+                }
+                None => (ExecutionOutcome::Rejected, "SPAWN_FAILED"),
+            };
             return CommandResult::from_payload(
                 &payload,
                 ExecutionReport {
-                    outcome: ExecutionOutcome::Rejected,
+                    outcome,
                     exit_code: None,
-                    reason_code: Some("SPAWN_FAILED"),
+                    reason_code: Some(reason_code),
                     stdout: Vec::new(),
-                    stderr: err.to_string().into_bytes(),
+                    stderr,
                     stdout_truncated: false,
                     stderr_truncated: false,
                 },
@@ -183,13 +248,24 @@ pub async fn execute_command(payload: CommandPayload) -> CommandResult {
     match wait_result {
         Ok(Ok(status)) => {
             let (stdout, stdout_truncated) = collect_output(&mut stdout_task).await;
-            let (stderr, stderr_truncated) = collect_output(&mut stderr_task).await;
+            let (mut stderr, stderr_truncated) = collect_output(&mut stderr_task).await;
+            let cleanup_error = sandboxed_command.cleanup_owned().await.err();
+            let (outcome, reason_code) = match cleanup_error {
+                Some(error) => {
+                    append_error(&mut stderr, &format!("containment cleanup failed: {error}"));
+                    (
+                        ExecutionOutcome::Unknown,
+                        Some("CONTAINMENT_CLEANUP_FAILED"),
+                    )
+                }
+                None => (ExecutionOutcome::Completed, None),
+            };
             CommandResult::from_payload(
                 &payload,
                 ExecutionReport {
-                    outcome: ExecutionOutcome::Completed,
+                    outcome,
                     exit_code: Some(status.code().unwrap_or(-1)),
-                    reason_code: None,
+                    reason_code,
                     stdout,
                     stderr,
                     stdout_truncated,
@@ -199,16 +275,25 @@ pub async fn execute_command(payload: CommandPayload) -> CommandResult {
             )
         }
         Ok(Err(err)) => {
+            terminate_child_tree(&mut child).await;
+            let cleanup_error = sandboxed_command.cleanup_owned().await.err();
             stdout_task.abort();
             stderr_task.abort();
+            let (reason_code, message) = match cleanup_error {
+                Some(cleanup) => (
+                    "CONTAINMENT_CLEANUP_FAILED",
+                    format!("{err}; containment cleanup failed: {cleanup}"),
+                ),
+                None => ("WAIT_FAILED", err.to_string()),
+            };
             CommandResult::from_payload(
                 &payload,
                 ExecutionReport {
                     outcome: ExecutionOutcome::Unknown,
                     exit_code: None,
-                    reason_code: Some("WAIT_FAILED"),
+                    reason_code: Some(reason_code),
                     stdout: Vec::new(),
-                    stderr: err.to_string().into_bytes(),
+                    stderr: message.into_bytes(),
                     stdout_truncated: true,
                     stderr_truncated: true,
                 },
@@ -216,16 +301,23 @@ pub async fn execute_command(payload: CommandPayload) -> CommandResult {
             )
         }
         Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            terminate_child_tree(&mut child).await;
+            let cleanup_error = sandboxed_command.cleanup_owned().await.err();
             let (stdout, stdout_truncated) = collect_output(&mut stdout_task).await;
-            let (stderr, stderr_truncated) = collect_output(&mut stderr_task).await;
+            let (mut stderr, stderr_truncated) = collect_output(&mut stderr_task).await;
+            let (outcome, reason_code) = match cleanup_error {
+                Some(error) => {
+                    append_error(&mut stderr, &format!("containment cleanup failed: {error}"));
+                    (ExecutionOutcome::Unknown, "CONTAINMENT_CLEANUP_FAILED")
+                }
+                None => (ExecutionOutcome::TimedOut, "EXECUTION_DEADLINE_EXCEEDED"),
+            };
             CommandResult::from_payload(
                 &payload,
                 ExecutionReport {
-                    outcome: ExecutionOutcome::TimedOut,
+                    outcome,
                     exit_code: None,
-                    reason_code: Some("EXECUTION_DEADLINE_EXCEEDED"),
+                    reason_code: Some(reason_code),
                     stdout,
                     stderr,
                     stdout_truncated,
@@ -237,12 +329,65 @@ pub async fn execute_command(payload: CommandPayload) -> CommandResult {
     }
 }
 
+fn append_error(stderr: &mut Vec<u8>, message: &str) {
+    if !stderr.is_empty() {
+        stderr.push(b'\n');
+    }
+    stderr.extend_from_slice(message.as_bytes());
+}
+
+async fn terminate_child_tree(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    {
+        if let Some(process_group_id) = child.id() {
+            let killed = unsafe { libc::kill(-(process_group_id as i32), libc::SIGKILL) } == 0;
+            if killed {
+                let _ = child.wait().await;
+                reap_process_group(process_group_id as i32).await;
+                return;
+            }
+        }
+    }
+
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+#[cfg(unix)]
+fn enable_child_subreaper() {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        // Timed-out shells can orphan grandchildren. As a subreaper, the agent
+        // can reap those descendants after killing their isolated process group.
+        let _ = libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
+    }
+}
+
+#[cfg(unix)]
+async fn reap_process_group(process_group_id: i32) {
+    for _ in 0..50 {
+        let mut status = 0;
+        let reaped = unsafe { libc::waitpid(-process_group_id, &mut status, libc::WNOHANG) };
+        if reaped > 0 {
+            continue;
+        }
+        if reaped == -1 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ECHILD) {
+                return;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{execute_command, CommandPayload, ExecutionOutcome};
+    use super::{execute_command, read_bounded, CommandPayload, ExecutionOutcome};
     use crate::sandbox::SandboxMode;
+    use tokio::io::AsyncWriteExt;
 
-    fn payload(command: &str, timeout_ms: u64, max_output_bytes: usize) -> CommandPayload {
+    fn payload(mode: SandboxMode) -> CommandPayload {
         CommandPayload {
             protocol_version: 2,
             job_id: "job-test".to_string(),
@@ -251,60 +396,70 @@ mod tests {
             target_execution_id: "22222222-2222-4222-8222-222222222222".to_string(),
             attempt_id: "33333333-3333-4333-8333-333333333333".to_string(),
             operation_id: "44444444-4444-4444-8444-444444444444".to_string(),
-            command: command.to_string(),
-            timeout_ms,
-            max_output_bytes,
-            sandbox_mode: SandboxMode::None,
+            command: "echo must-not-run".to_string(),
+            timeout_ms: 5_000,
+            max_output_bytes: 65_536,
+            sandbox_mode: mode,
         }
     }
 
     #[tokio::test]
-    async fn echo_hello_returns_success_with_correlations() {
-        let result = execute_command(payload("echo hello", 5_000, 65_536)).await;
-        assert_eq!(result.outcome, ExecutionOutcome::Completed);
-        assert_eq!(result.exit_code, Some(0));
-        assert_eq!(result.run_id, "11111111-1111-4111-8111-111111111111");
-        assert!(result.stdout.contains("hello"));
-    }
-
-    #[tokio::test]
-    async fn exit_one_is_completed_with_nonzero_exit() {
-        let result = execute_command(payload("exit 1", 5_000, 65_536)).await;
-        assert_eq!(result.outcome, ExecutionOutcome::Completed);
-        assert_eq!(result.exit_code, Some(1));
-    }
-
-    #[tokio::test]
-    async fn long_running_command_times_out_without_claiming_exit() {
-        let command = if cfg!(target_os = "windows") {
-            "ping 127.0.0.1 -n 3 > nul"
-        } else {
-            "sleep 2"
-        };
-        let result = execute_command(payload(command, 100, 65_536)).await;
-        assert_eq!(result.outcome, ExecutionOutcome::TimedOut);
+    async fn none_mode_is_rejected_before_execution() {
+        let result = execute_command(payload(SandboxMode::None)).await;
+        assert_eq!(result.outcome, ExecutionOutcome::Rejected);
+        assert_eq!(result.reason_code.as_deref(), Some("UNSUPPORTED_SANDBOX"));
         assert_eq!(result.exit_code, None);
-        assert_eq!(
-            result.reason_code.as_deref(),
-            Some("EXECUTION_DEADLINE_EXCEEDED")
-        );
+        assert_eq!(result.run_id, "11111111-1111-4111-8111-111111111111");
+        assert!(result.stderr.contains("not permitted"));
     }
 
     #[tokio::test]
-    async fn output_is_bounded_and_marked_truncated() {
-        let command = if cfg!(target_os = "windows") {
-            "for /L %i in (1,1,200) do @echo 0123456789"
-        } else {
-            "yes 0123456789 | head -n 200"
-        };
-        let result = execute_command(payload(command, 5_000, 64)).await;
-        assert!(result.stdout.len() <= 64);
-        assert!(result.stdout_truncated);
+    async fn namespace_mode_is_rejected_before_execution() {
+        let result = execute_command(payload(SandboxMode::Namespace)).await;
+        assert_eq!(result.outcome, ExecutionOutcome::Rejected);
+        assert_eq!(result.reason_code.as_deref(), Some("UNSUPPORTED_SANDBOX"));
+        assert!(result.stderr.contains("not supported"));
     }
 
     #[tokio::test]
-    async fn nonexistent_command_is_not_success() {
-        let result = execute_command(payload("cat nonexistent_file", 5_000, 65_536)).await;
-        assert_ne!(result.exit_code, Some(0));
+    async fn tagged_docker_image_is_rejected_before_execution() {
+        let result = execute_command(payload(SandboxMode::from_vars(
+            "docker".to_string(),
+            "alpine:3.19".to_string(),
+            std::env::temp_dir(),
+            "agent-test".to_string(),
+            "release-test".to_string(),
+        )))
+        .await;
+        assert_eq!(result.outcome, ExecutionOutcome::Rejected);
+        assert_eq!(result.reason_code.as_deref(), Some("UNSUPPORTED_SANDBOX"));
+        assert!(result.stderr.contains("pinned"));
+    }
+
+    #[tokio::test]
+    async fn bounded_reader_drains_and_marks_truncation() {
+        let (reader, mut writer) = tokio::io::duplex(256);
+        let write = tokio::spawn(async move {
+            writer.write_all(&[b'x'; 100]).await.unwrap();
+            writer.shutdown().await.unwrap();
+        });
+        let (stored, truncated) = read_bounded(reader, 16).await;
+        write.await.unwrap();
+
+        assert_eq!(stored, vec![b'x'; 16]);
+        assert!(truncated);
+    }
+
+    #[tokio::test]
+    async fn zero_output_limit_still_drains_input() {
+        let (reader, mut writer) = tokio::io::duplex(32);
+        let write = tokio::spawn(async move {
+            writer.write_all(b"output").await.unwrap();
+        });
+        let (stored, truncated) = read_bounded(reader, 0).await;
+        write.await.unwrap();
+
+        assert!(stored.is_empty());
+        assert!(truncated);
     }
 }

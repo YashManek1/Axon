@@ -74,6 +74,7 @@ beforeAll(async () => {
     { default: Organization },
     { default: Agent },
     { default: AuditLog },
+    { default: ExecutionTargetHold },
   ] = await Promise.all([
     import("../../routes/userR.js"),
     import("../../routes/jobR.js"),
@@ -87,6 +88,7 @@ beforeAll(async () => {
     import("../../models/organization.js"),
     import("../../models/agent.js"),
     import("../../models/auditLog.js"),
+    import("../../models/executionTargetHold.js"),
   ]);
 
   modules = {
@@ -97,6 +99,7 @@ beforeAll(async () => {
     Organization,
     Agent,
     AuditLog,
+    ExecutionTargetHold,
   };
 
   app = express();
@@ -107,7 +110,7 @@ beforeAll(async () => {
   app.use("/jobs", jobRoutes);
   app.use("/audit", auditRoutes);
   app.use("/agents", agentProvisioningRoutes);
-});
+}, 30_000);
 
 beforeEach(async () => {
   immediateAdds.length = 0;
@@ -369,4 +372,49 @@ describe("full job lifecycle e2e", () => {
     expect(socket.emittedCommands).toHaveLength(0);
     await expect(modules.AuditLog.countDocuments({ jobId: job._id })).resolves.toBe(1);
   });
+  it("blocks worker dispatch when a durable target hold survives without a Redis lease", async () => {
+    const session = await createUserAndOrg("durable-overlap");
+    const registered = await registerAgent(session, "durable-overlap-socket");
+    const socket = new MockSocket(registered.agentId, session.user.orgId);
+    modules.worker.configureJobWorker({
+      sockets: { sockets: new Map([["durable-overlap-socket", socket]]) },
+    });
+
+    const job = await createShellJob(session.token, {
+      targetAgentId: registered.agentId,
+    });
+    const triggerResponse = await request(app)
+      .post(`/jobs/runJobNow/${job._id}`)
+      .set("Authorization", auth(session.token));
+    expect(triggerResponse.status).toBe(200);
+
+    const originalOwner = {
+      organizationId: job.orgId,
+      targetAgentId: registered.agentId,
+      runId: "unresolved-run",
+      attemptId: "unresolved-attempt",
+      fencingToken: 41,
+    };
+    await modules.ExecutionTargetHold.create(originalOwner);
+
+    await expect(modules.worker.jobProcessor(latestImmediateJob())).rejects.toMatchObject({
+      code: "CONCURRENT_TARGET_EXECUTION",
+      runId: triggerResponse.body.runId,
+    });
+
+    expect(socket.emittedCommands).toHaveLength(0);
+    await expect(
+      modules.ExecutionTargetHold.findOne({
+        organizationId: job.orgId,
+        targetAgentId: registered.agentId,
+      })
+        .select("runId attemptId fencingToken")
+        .lean(),
+    ).resolves.toMatchObject({
+      runId: originalOwner.runId,
+      attemptId: originalOwner.attemptId,
+      fencingToken: originalOwner.fencingToken,
+    });
+  });
+
 });

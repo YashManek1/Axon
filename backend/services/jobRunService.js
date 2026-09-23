@@ -313,6 +313,26 @@ export function buildQueueData(run, job = {}, agent = {}) {
   };
 }
 
+function hasRecoverableDispatchIntent(run) {
+  const attempt = run.attempts?.[0];
+  return (
+    run.status === "ACCEPTED" &&
+    run.attempts?.length === 1 &&
+    attempt?.status === "PENDING" &&
+    Boolean(attempt.attemptId) &&
+    String(run.queueJobId) === String(attempt.attemptId) &&
+    Boolean(attempt.targetExecutionId) &&
+    Boolean(attempt.operationId) &&
+    Boolean(run.action?.actionVersion) &&
+    Boolean(run.action?.command) &&
+    Array.isArray(run.action?.allowedCommands) &&
+    run.action.allowedCommands.length > 0 &&
+    Number.isSafeInteger(run.action?.timeoutMs) &&
+    Number.isFinite(run.action?.startBefore) &&
+    Number.isSafeInteger(run.action?.maxOutputBytes)
+  );
+}
+
 export async function markRunQueued(runId, source = "QUEUE") {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const run = await loadRun(runId);
@@ -575,6 +595,16 @@ export async function recoverStaleManualRuns(queue, {
   const summary = { inspected: runs.length, enqueued: 0, restored: 0, unknown: 0, errors: 0 };
 
   for (const run of runs) {
+    if (run.status === "ACCEPTED" && !hasRecoverableDispatchIntent(run)) {
+      try {
+        await markRunUnknown(run.runId, "DISPATCH_INTENT_INVALID", ["ACCEPTED"]);
+        summary.unknown += 1;
+      } catch {
+        summary.errors += 1;
+      }
+      continue;
+    }
+
     let queueJob;
     try {
       queueJob = await queue.getJob(run.queueJobId);

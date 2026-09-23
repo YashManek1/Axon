@@ -85,6 +85,8 @@ const JobRunSchema = new mongoose.Schema(
       index: true,
     },
     targetSocketId: { type: String, required: true },
+    // ACCEPTED recovery validates that this equals attempts[0].attemptId.
+    // Keeping the deterministic identity explicit prevents duplicate dispatch.
     queueJobId: { type: String, required: true },
     requestKey: { type: String, default: null },
     requestFingerprint: { type: String, required: true },
@@ -102,6 +104,8 @@ const JobRunSchema = new mongoose.Schema(
       startBefore: { type: Number, required: true },
       maxOutputBytes: { type: Number, required: true, min: 1, max: 65_536 },
     },
+    // ACCEPTED is the durable pending-dispatch intent and the only replayable
+    // state. Every later state requires queue evidence or becomes UNKNOWN.
     status: { type: String, enum: RUN_STATUSES, default: "ACCEPTED", index: true },
     requiresReview: { type: Boolean, default: false },
     reasonCode: { type: String, default: null },

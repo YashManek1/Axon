@@ -103,7 +103,7 @@ describe("protocol-v2 dispatch acknowledgement", () => {
     const result = expect(dispatch.resultPromise).rejects.toMatchObject({
       code: "EXECUTION_RESULT_UNKNOWN",
     });
-    await vi.advanceTimersByTimeAsync(ENVELOPE.timeoutMs + 1_000);
+    await vi.advanceTimersByTimeAsync(ENVELOPE.timeoutMs + 30_000);
     await result;
   });
 });

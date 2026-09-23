@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "profile": "axon_b2b",
+  "mode": "dry_run",
+  "batch_id": "synthetic-agent-pipeline-001",
+  "prepared_at": "2026-09-20T10:00:00+05:30",
+  "accounts": [
+    {
+      "account_id": "synthetic-platform-001",
+      "organization": "Synthetic Platform Ltd",
+      "domain": "example.invalid",
+      "observed_at": "2026-09-19T09:00:00+05:30",
+      "jurisdiction": "Test jurisdiction",
+      "entity_type": "Limited company",
+      "channel": "organization_contact_form",
+      "recipient_route": {
+        "route_type": "public organization form",
+        "role": "platform engineering owner"
+      },
+      "planned_at": "2026-09-23T15:00:00+05:30",
+      "message_version": "v1",
+      "evidence": [
+        {
+          "evidence_id": "public-service-update",
+          "kind": "verified_fact",
+          "text": "the public service page added a recurring platform migration offering",
+          "source_url": "https://example.invalid/services/platform-migration",
+          "observed_at": "2026-09-19T09:00:00+05:30",
+          "is_trigger": true
+        },
+        {
+          "evidence_id": "review-hypothesis",
+          "kind": "inference",
+          "text": "repeated handoffs may make execution evidence harder to review",
+          "source_url": "https://example.invalid/services/platform-migration",
+          "observed_at": "2026-09-19T09:00:00+05:30",
+          "is_trigger": false
+        }
+      ],
+      "score": {
+        "rubric_version": "2026-09-12",
+        "components": {
+          "repeated_procedure": 2,
+          "cost_or_failure_pain": 2,
+          "buyer_access_or_budget": 1,
+          "current_alternative_gap": 1,
+          "safe_assessment_path": 2
+        },
+        "total": 8
+      },
+      "candidate_use_cases": [
+        {
+          "use_case_id": "reviewable-procedure-assessment",
+          "title": "Review one recurring migration procedure",
+          "problem_hypothesis": "repeated handoffs may make execution evidence harder to review",
+          "owner_roles": [
+            "platform engineering owner",
+            "operations owner"
+          ],
+          "supporting_evidence_ids": [
+            "public-service-update",
+            "review-hypothesis"
+          ],
+          "fit_score": 8,
+          "capability_id": "assessment_evidence_v1"
+        }
+      ],
+      "suppression": {
+        "checked": true,
+        "status": "clear",
+        "checked_at": "2026-09-20T09:30:00+05:30",
+        "reason": null
+      }
+    }
+  ]
+}

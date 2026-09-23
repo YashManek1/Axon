@@ -1,4 +1,5 @@
-use crate::execution::{execute_command, CommandPayload};
+use crate::execution::{execute_command, CommandPayload, CommandResult, ExecutionOutcome};
+use crate::journal::{AttemptDescriptor, AttemptJournal, JournalError, ReceiveDecision};
 use crate::sandbox::SandboxMode;
 use crate::telemetry::collect_telemetry;
 use futures_util::{SinkExt, StreamExt};
@@ -102,6 +103,8 @@ pub struct AgentConnection {
     pub reconnect_delay_ms: u64,
     pub max_reconnect_delay_ms: u64,
     pub signing_key: Vec<u8>,
+    pub release_id: String,
+    pub journal: Arc<AttemptJournal>,
     /// Sandbox mode applied to every dispatched command.  Read from
     /// `AGENT_SANDBOX_MODE` at startup; set by the operator from the
     /// `POST /agents/register` response.
@@ -121,6 +124,8 @@ impl AgentConnection {
         max_reconnect_delay_ms: u64,
         signing_key: Vec<u8>,
         sandbox_mode: SandboxMode,
+        release_id: String,
+        journal: Arc<AttemptJournal>,
     ) -> Self {
         Self {
             server_url,
@@ -131,6 +136,8 @@ impl AgentConnection {
             max_reconnect_delay_ms,
             signing_key,
             sandbox_mode,
+            release_id,
+            journal,
             http_client: reqwest::Client::new(),
             seen_nonces: std::sync::Mutex::new(HashSet::new()),
         }
@@ -189,12 +196,12 @@ impl AgentConnection {
         let auth_packet = if !current_token.is_empty() {
             format!(
                 "40{}",
-                json!({ "agentId": self.agent_id, "shortToken": current_token, "protocolVersions": [2] })
+                json!({ "agentId": self.agent_id, "shortToken": current_token, "protocolVersions": [2], "releaseId": self.release_id })
             )
         } else {
             format!(
                 "40{}",
-                json!({ "agentId": self.agent_id, "apiKey": self.api_key, "protocolVersions": [2] })
+                json!({ "agentId": self.agent_id, "apiKey": self.api_key, "protocolVersions": [2], "releaseId": self.release_id })
             )
         };
         send_text(&writer, auth_packet).await?;
@@ -391,6 +398,98 @@ impl AgentConnection {
                     return Ok(());
                 }
 
+                if dispatch.allowed_commands.is_empty()
+                    || !dispatch
+                        .allowed_commands
+                        .iter()
+                        .any(|p| matches_pattern(p, &dispatch.command))
+                {
+                    warn!(job_id = %dispatch.job_id, "dispatch rejected: command not in allowlist");
+                    let packet = socketio_event_packet(
+                        "command_result",
+                        rejected_result(
+                            &dispatch,
+                            "COMMAND_NOT_ALLOWED",
+                            "command not in allowlist",
+                        ),
+                    );
+                    send_text(writer, packet).await?;
+                    return Ok(());
+                }
+
+                let descriptor = AttemptDescriptor::new(
+                    dispatch.protocol_version,
+                    dispatch.org_id.clone(),
+                    dispatch.job_id.clone(),
+                    dispatch.target_agent_id.clone(),
+                    dispatch.run_id.clone(),
+                    dispatch.target_execution_id.clone(),
+                    dispatch.attempt_id.clone(),
+                    dispatch.operation_id.clone(),
+                    dispatch.action_version.clone(),
+                    &dispatch.command,
+                    &dispatch.allowed_commands,
+                    dispatch.timeout_ms,
+                    dispatch.start_before,
+                    dispatch.max_output_bytes,
+                );
+
+                match self.journal.receive(&descriptor) {
+                    Ok(ReceiveDecision::New) => {}
+                    Ok(ReceiveDecision::ActiveDuplicate) => {
+                        send_text(
+                            writer,
+                            socketio_event_packet("job_ack", correlation_fields(&dispatch)),
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                    Ok(ReceiveDecision::TerminalDuplicate(result)) => {
+                        send_text(
+                            writer,
+                            socketio_event_packet("job_ack", correlation_fields(&dispatch)),
+                        )
+                        .await?;
+                        send_text(
+                            writer,
+                            socketio_event_packet("command_result", json!(result)),
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                    Ok(ReceiveDecision::Conflict) => {
+                        send_text(
+                            writer,
+                            socketio_event_packet(
+                                "command_result",
+                                rejected_result(
+                                    &dispatch,
+                                    "ATTEMPT_ID_CONFLICT",
+                                    "attemptId was reused with different immutable dispatch fields",
+                                ),
+                            ),
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                    Err(error) => {
+                        error!(job_id = %dispatch.job_id, error = %error, "attempt journal rejected dispatch");
+                        send_text(
+                            writer,
+                            socketio_event_packet(
+                                "command_result",
+                                rejected_result(
+                                    &dispatch,
+                                    journal_error_code(&error),
+                                    "attempt journal is unavailable or corrupt",
+                                ),
+                            ),
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                }
+
                 let replayed = {
                     let mut seen = self.seen_nonces.lock().unwrap();
                     if seen.contains(&dispatch.nonce) {
@@ -405,34 +504,17 @@ impl AgentConnection {
                 };
                 if replayed {
                     warn!(job_id = %dispatch.job_id, "dispatch rejected: replayed nonce");
-                    let packet = socketio_event_packet(
-                        "command_result",
-                        rejected_result(&dispatch, "REPLAY_DETECTED", "replayed dispatch"),
-                    );
-                    send_text(writer, packet).await?;
-                    return Ok(());
-                }
-
-                if dispatch.allowed_commands.is_empty()
-                    || !dispatch
-                        .allowed_commands
-                        .iter()
-                        .any(|p| matches_pattern(p, &dispatch.command))
-                {
-                    warn!(
-                        job_id = %dispatch.job_id,
-                        command = %dispatch.command,
-                        "dispatch rejected: command not in allowlist"
-                    );
-                    let packet = socketio_event_packet(
-                        "command_result",
-                        rejected_result(
-                            &dispatch,
-                            "COMMAND_NOT_ALLOWED",
-                            "command not in allowlist",
-                        ),
-                    );
-                    send_text(writer, packet).await?;
+                    let result =
+                        rejected_command_result(&dispatch, "REPLAY_DETECTED", "replayed dispatch");
+                    if let Err(error) = self.journal.complete(&descriptor, result.clone()) {
+                        error!(job_id = %dispatch.job_id, error = %error, "failed to persist nonce rejection");
+                        return Ok(());
+                    }
+                    send_text(
+                        writer,
+                        socketio_event_packet("command_result", json!(result)),
+                    )
+                    .await?;
                     return Ok(());
                 }
 
@@ -450,17 +532,40 @@ impl AgentConnection {
                     sandbox_mode: self.sandbox_mode.clone(),
                 };
 
-                // Acknowledge receipt before spawning so the server can distinguish
-                // "never received" from "received then crashed".
-                let ack_packet = socketio_event_packet("job_ack", correlation_fields(&dispatch));
-                send_text(writer, ack_packet).await?;
+                if let Err(error) = self.journal.mark_running(&descriptor) {
+                    error!(job_id = %dispatch.job_id, error = %error, "failed to mark attempt running");
+                    send_text(
+                        writer,
+                        socketio_event_packet(
+                            "command_result",
+                            rejected_result(
+                                &dispatch,
+                                journal_error_code(&error),
+                                "attempt journal is unavailable or corrupt",
+                            ),
+                        ),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+
+                send_text(
+                    writer,
+                    socketio_event_packet("job_ack", correlation_fields(&dispatch)),
+                )
+                .await?;
 
                 let result_writer = Arc::clone(writer);
+                let result_journal = Arc::clone(&self.journal);
 
                 tokio::spawn(async move {
                     let job_id = command_payload.job_id.clone();
                     info!(job_id = %job_id, "executing command");
                     let result = execute_command(command_payload).await;
+                    if let Err(error) = result_journal.complete(&descriptor, result.clone()) {
+                        error!(job_id = %job_id, error = %error, "failed to persist command result");
+                        return;
+                    }
                     let packet = socketio_event_packet("command_result", json!(result));
 
                     if let Err(err) = send_text(&result_writer, packet).await {
@@ -488,19 +593,39 @@ fn correlation_fields(payload: &DispatchPayload) -> Value {
     })
 }
 
-fn rejected_result(payload: &DispatchPayload, reason_code: &str, message: &str) -> Value {
-    let mut result = correlation_fields(payload);
-    if let Some(object) = result.as_object_mut() {
-        object.insert("outcome".to_string(), json!("rejected"));
-        object.insert("exitCode".to_string(), Value::Null);
-        object.insert("reasonCode".to_string(), json!(reason_code));
-        object.insert("stdout".to_string(), json!(""));
-        object.insert("stderr".to_string(), json!(message));
-        object.insert("stdoutTruncated".to_string(), json!(false));
-        object.insert("stderrTruncated".to_string(), json!(false));
-        object.insert("durationMs".to_string(), json!(0));
+fn rejected_command_result(
+    payload: &DispatchPayload,
+    reason_code: &str,
+    message: &str,
+) -> CommandResult {
+    CommandResult {
+        protocol_version: payload.protocol_version,
+        job_id: payload.job_id.clone(),
+        target_agent_id: payload.target_agent_id.clone(),
+        run_id: payload.run_id.clone(),
+        target_execution_id: payload.target_execution_id.clone(),
+        attempt_id: payload.attempt_id.clone(),
+        operation_id: payload.operation_id.clone(),
+        outcome: ExecutionOutcome::Rejected,
+        exit_code: None,
+        reason_code: Some(reason_code.to_string()),
+        stdout: String::new(),
+        stderr: message.to_string(),
+        stdout_truncated: false,
+        stderr_truncated: false,
+        duration_ms: 0,
     }
-    result
+}
+
+fn rejected_result(payload: &DispatchPayload, reason_code: &str, message: &str) -> Value {
+    json!(rejected_command_result(payload, reason_code, message))
+}
+
+fn journal_error_code(error: &JournalError) -> &'static str {
+    match error {
+        JournalError::CorruptRecord(_) => "ATTEMPT_JOURNAL_CORRUPT",
+        _ => "ATTEMPT_JOURNAL_UNAVAILABLE",
+    }
 }
 
 fn validate_dispatch(

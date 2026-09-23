@@ -9,7 +9,8 @@ import {
 
 const tracer = trace.getTracer("axon.job-execution");
 const ACK_TIMEOUT_MS = 5_000;
-const RESULT_GRACE_MS = 1_000;
+// The agent reports only after bounded Docker containment cleanup and absence verification.
+const RESULT_GRACE_MS = 30_000;
 
 function createExecutionError(code, message = code) {
   const error = new Error(message);
@@ -76,7 +77,15 @@ function validateEnvelope(envelope) {
   return null;
 }
 
-export function createJobExecutionRouter(io) {
+export function createJobExecutionRouter(
+  io,
+  { expectedReleaseId = environment.AXON_RELEASE_ID } = {},
+) {
+  const requiredReleaseId =
+    typeof expectedReleaseId === "string"
+      ? expectedReleaseId.trim() || null
+      : null;
+
   function dispatchCommandToAgent(envelope, targetSocketId, expectedAuthGeneration) {
     const validationError = validateEnvelope(envelope);
     if (validationError) return rejectedDispatch(validationError);
@@ -101,6 +110,13 @@ export function createJobExecutionRouter(io) {
       return rejectedDispatch(
         "AGENT_PROTOCOL_UNSUPPORTED",
         "The selected agent must be upgraded to execution protocol v2",
+      );
+    }
+    const socketReleaseId = socket.releaseId ?? socket.data?.releaseId ?? null;
+    if (requiredReleaseId && socketReleaseId !== requiredReleaseId) {
+      return rejectedDispatch(
+        "AGENT_RELEASE_MISMATCH",
+        "The selected agent is not running the required Axon release",
       );
     }
 

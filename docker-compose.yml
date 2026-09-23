@@ -3,7 +3,7 @@ services:
     image: mongo:7
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongodb-data:/data/db
     environment:
@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -42,6 +42,10 @@ services:
       PORT: ${PORT:-3000}
       MONGO_URI: ${MONGO_URI:-mongodb://axon_dev:axon_dev_secret@mongodb:27017/axon?authSource=admin}
       REDIS_URI: ${REDIS_URI:-redis://redis:6379}
+      AXON_RELEASE_ID: ${AXON_RELEASE_ID:-dev}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (see .env.example)}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set (see .env.example)}
+      DISPATCH_SIGNING_KEY: ${DISPATCH_SIGNING_KEY:?DISPATCH_SIGNING_KEY must be set (see .env.example)}
       # No default: a missing token must fail startup loudly rather than fall back
       # to a known literal that could reach a production path.
       PROMETHEUS_BEARER_TOKEN: ${PROMETHEUS_BEARER_TOKEN:?PROMETHEUS_BEARER_TOKEN must be set (see .env.example)}
@@ -84,6 +88,12 @@ services:
     env_file:
       - path: .env.agent
         required: false
+    environment:
+      AXON_RELEASE_ID: ${AXON_RELEASE_ID:-dev}
+      DISPATCH_SIGNING_KEY: ${DISPATCH_SIGNING_KEY:?DISPATCH_SIGNING_KEY must be set (see .env.example)}
+      AXON_AGENT_JOURNAL_DIR: /var/lib/axon/journal
+    volumes:
+      - agent-journal:/var/lib/axon/journal
     depends_on:
       backend:
         condition: service_healthy
@@ -136,5 +146,6 @@ services:
 volumes:
   mongodb-data:
   redis-data:
+  agent-journal:
   prometheus-data:
   grafana-data:

@@ -69,6 +69,15 @@ describe("environment validation", () => {
     ).toThrow(/AXON_EXECUTION_PROFILE/);
   });
 
+  it("accepts and trims an optional matched release id", () => {
+    const environment = validateEnvironment({
+      ...validEnvironment,
+      AXON_RELEASE_ID: " release-2026-09-19 ",
+    });
+
+    expect(environment.AXON_RELEASE_ID).toBe("release-2026-09-19");
+  });
+
   it("logger does not throw when called with structured data", () => {
     const childLogger = createChildLogger({ testName: "environment.test" });
 

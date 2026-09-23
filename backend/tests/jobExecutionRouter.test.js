@@ -20,13 +20,14 @@ const ENVELOPE = {
 };
 
 class MockSocket extends EventEmitter {
-  constructor(agentId, orgId) {
+  constructor(agentId, orgId, releaseId = null) {
     super();
     this.agentId = agentId;
     this.orgId = orgId;
     this.clientType = "agent";
     this.authGeneration = 0;
     this.protocolVersions = [2];
+    this.releaseId = releaseId;
     this.commands = [];
   }
   emit(name, payload) {
@@ -111,7 +112,9 @@ describe("protocol-v2 job execution router", () => {
     const result = expect(dispatch.resultPromise).rejects.toMatchObject({
       code: "EXECUTION_RESULT_UNKNOWN",
     });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(30_999);
+    selected.emit("command_result", correlated({ attemptId: "wrong", exitCode: 0 }));
+    await vi.advanceTimersByTimeAsync(1);
     await result;
   });
 
@@ -141,5 +144,55 @@ describe("protocol-v2 job execution router", () => {
     });
     await dispatch.resultPromise.catch(() => {});
     expect(selected.commands).toHaveLength(0);
+  });
+
+  it("dispatches when the authenticated agent release matches", async () => {
+    const selected = new MockSocket("agent-1", "org-1", "release-a");
+    const router = createJobExecutionRouter(
+      { sockets: { sockets: new Map([["socket-1", selected]]) } },
+      { expectedReleaseId: "release-a" },
+    );
+
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "socket-1", 0);
+    selected.emit("job_ack", correlated());
+    selected.emit("command_result", correlated({ outcome: "completed", exitCode: 0 }));
+
+    await expect(dispatch.resultPromise).resolves.toMatchObject({ exitCode: 0 });
+    expect(selected.commands).toHaveLength(1);
+  });
+
+  it.each([
+    ["different", "release-b"],
+    ["missing", null],
+  ])("fails closed when the authenticated agent release is %s", async (_case, releaseId) => {
+    const selected = new MockSocket("agent-1", "org-1", releaseId);
+    const router = createJobExecutionRouter(
+      { sockets: { sockets: new Map([["socket-1", selected]]) } },
+      { expectedReleaseId: "release-a" },
+    );
+
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "socket-1", 0);
+    await expect(dispatch.ackPromise).rejects.toMatchObject({
+      code: "AGENT_RELEASE_MISMATCH",
+    });
+    await expect(dispatch.resultPromise).rejects.toMatchObject({
+      code: "AGENT_RELEASE_MISMATCH",
+    });
+    expect(selected.commands).toHaveLength(0);
+  });
+
+  it("keeps legacy sockets compatible when no release is configured", async () => {
+    const selected = new MockSocket("agent-1", "org-1");
+    const router = createJobExecutionRouter(
+      { sockets: { sockets: new Map([["socket-1", selected]]) } },
+      { expectedReleaseId: null },
+    );
+
+    const dispatch = router.dispatchCommandToAgent(ENVELOPE, "socket-1", 0);
+    selected.emit("job_ack", correlated());
+    selected.emit("command_result", correlated({ outcome: "completed", exitCode: 0 }));
+
+    await expect(dispatch.resultPromise).resolves.toMatchObject({ exitCode: 0 });
+    expect(selected.commands).toHaveLength(1);
   });
 });

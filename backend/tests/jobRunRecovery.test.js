@@ -142,6 +142,22 @@ describe("manual JobRun recovery", () => {
     expect(persisted.status).toBe("QUEUED");
   });
 
+  it("restores QUEUED when Redis has the deterministic item before Mongo records the transition", async () => {
+    const created = await staleRun();
+    const queue = new FakeQueue();
+    queue.jobs.set(created.queueData.attemptId, {
+      id: created.queueData.attemptId,
+      data: created.queueData,
+    });
+
+    const summary = await recover(queue);
+    const persisted = await JobRun.findOne({ runId: created.run.runId });
+
+    expect(summary).toMatchObject({ restored: 1, enqueued: 0, unknown: 0, errors: 0 });
+    expect(queue.addCalls).toHaveLength(0);
+    expect(persisted.status).toBe("QUEUED");
+  });
+
   it("fails closed when queue state cannot be inspected", async () => {
     const created = await staleRun();
 
@@ -201,5 +217,45 @@ describe("manual JobRun recovery", () => {
     expect(queue.jobs.size).toBe(1);
     expect(queue.jobs.has(created.queueData.attemptId)).toBe(true);
     expect(persisted.transitions.filter((entry) => entry.to === "QUEUED")).toHaveLength(1);
+  });
+
+  it("fails a legacy ACCEPTED record closed when its queue identity is inconsistent", async () => {
+    const created = await staleRun();
+    await JobRun.collection.updateOne(
+      { runId: created.run.runId },
+      { $set: { queueJobId: `legacy-${created.queueData.attemptId}`, updatedAt: new Date(0) } },
+    );
+    const queue = new FakeQueue();
+
+    const summary = await recover(queue);
+    const persisted = await JobRun.findOne({ runId: created.run.runId });
+
+    expect(summary).toMatchObject({ unknown: 1, errors: 0 });
+    expect(queue.addCalls).toHaveLength(0);
+    expect(persisted).toMatchObject({
+      status: "UNKNOWN",
+      reasonCode: "DISPATCH_INTENT_INVALID",
+      requiresReview: true,
+    });
+  });
+
+  it("fails a legacy ACCEPTED record closed when immutable dispatch fields are incomplete", async () => {
+    const created = await staleRun();
+    await JobRun.collection.updateOne(
+      { runId: created.run.runId },
+      { $unset: { "action.actionVersion": "" }, $set: { updatedAt: new Date(0) } },
+    );
+    const queue = new FakeQueue();
+
+    const summary = await recover(queue);
+    const persisted = await JobRun.findOne({ runId: created.run.runId });
+
+    expect(summary).toMatchObject({ unknown: 1, errors: 0 });
+    expect(queue.addCalls).toHaveLength(0);
+    expect(persisted).toMatchObject({
+      status: "UNKNOWN",
+      reasonCode: "DISPATCH_INTENT_INVALID",
+      requiresReview: true,
+    });
   });
 });

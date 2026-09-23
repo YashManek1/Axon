@@ -1,6 +1,12 @@
 import { randomUUID } from "crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import mongoose from "mongoose";
+import ExecutionTargetHold from "../models/executionTargetHold.js";
 import { buildExecutionResourceKey } from "../services/executionResource.js";
+import {
+  acquireExecutionTargetHold,
+  releaseExecutionTargetHold,
+} from "../services/executionTargetHoldService.js";
 
 const redisUrl = process.env.REDIS_URL;
 const usesIsolatedDb = (() => {
@@ -18,6 +24,8 @@ describeRealRedis("real Redis target-resource exclusion", () => {
   let lock;
   let resourceKey;
   let otherResourceKey;
+  let shortLeaseResourceKey;
+  let durableResourceKey;
   let orgId;
 
   beforeAll(async () => {
@@ -43,11 +51,25 @@ describeRealRedis("real Redis target-resource exclusion", () => {
       targetAgentId: randomUUID(),
       jobId: randomUUID(),
     });
+    shortLeaseResourceKey = buildExecutionResourceKey({
+      orgId,
+      targetAgentId: randomUUID(),
+      jobId: randomUUID(),
+    });
+    durableResourceKey = buildExecutionResourceKey({
+      orgId,
+      targetAgentId: randomUUID(),
+      jobId: randomUUID(),
+    });
     await redis.del(
       `job:lock:${resourceKey}`,
       `job:fence:${resourceKey}`,
       `job:lock:${otherResourceKey}`,
       `job:fence:${otherResourceKey}`,
+      `job:lock:${shortLeaseResourceKey}`,
+      `job:fence:${shortLeaseResourceKey}`,
+      `job:lock:${durableResourceKey}`,
+      `job:fence:${durableResourceKey}`,
     );
     vi.doMock("../config/queue.js", () => ({ redisConnection: redis }));
     lock = await import("../services/distributedLock.js");
@@ -60,6 +82,8 @@ describeRealRedis("real Redis target-resource exclusion", () => {
         `job:fence:${resourceKey}`,
         `job:lock:${otherResourceKey}`,
         `job:fence:${otherResourceKey}`,
+        `job:lock:${shortLeaseResourceKey}`,
+        `job:fence:${shortLeaseResourceKey}`,
       );
     }
     redis?.disconnect();
@@ -92,4 +116,58 @@ describeRealRedis("real Redis target-resource exclusion", () => {
     expect(await lock.acquireJobLock(otherResourceKey, "replacement-run", 375))
       .toMatchObject({ acquired: true });
   });
+
+  it("keeps an overlapping claimant out until a short lease expires", async () => {
+    expect(await lock.acquireJobLock(shortLeaseResourceKey, "short-owner", 1))
+      .toMatchObject({ acquired: true });
+    expect(await lock.acquireJobLock(shortLeaseResourceKey, "overlap-owner", 1))
+      .toMatchObject({ acquired: false, existingWorker: "short-owner" });
+
+    await new Promise((resolve) => setTimeout(resolve, 1_250));
+
+    expect(await lock.acquireJobLock(shortLeaseResourceKey, "after-expiry", 1))
+      .toMatchObject({ acquired: true });
+  });
+  it("keeps a second execution out after the Redis lease expires while the durable hold remains", async () => {
+    await ExecutionTargetHold.syncIndexes();
+    const organizationId = new mongoose.Types.ObjectId();
+    const targetAgentId = new mongoose.Types.ObjectId();
+    const originalOwner = {
+      organizationId,
+      targetAgentId,
+      runId: "durable-owner",
+      attemptId: "attempt-1",
+      fencingToken: 51,
+    };
+    const secondOwner = {
+      organizationId,
+      targetAgentId,
+      runId: "overlap-owner",
+      attemptId: "attempt-2",
+      fencingToken: 52,
+    };
+
+    expect(await lock.acquireJobLock(durableResourceKey, originalOwner.runId, 1))
+      .toMatchObject({ acquired: true });
+    expect(await acquireExecutionTargetHold(originalOwner))
+      .toMatchObject({ acquired: true });
+
+    await new Promise((resolve) => setTimeout(resolve, 1_250));
+
+    expect(await lock.acquireJobLock(durableResourceKey, secondOwner.runId, 1))
+      .toMatchObject({ acquired: true });
+    expect(await acquireExecutionTargetHold(secondOwner))
+      .toMatchObject({
+        acquired: false,
+        owner: expect.objectContaining({
+          runId: originalOwner.runId,
+          attemptId: originalOwner.attemptId,
+          fencingToken: originalOwner.fencingToken,
+        }),
+      });
+
+    expect(await releaseExecutionTargetHold(originalOwner, "COMPLETED"))
+      .toMatchObject({ released: true });
+  });
+
 });

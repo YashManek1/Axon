@@ -6,12 +6,15 @@ const mocks = vi.hoisted(() => ({
   dispatch: vi.fn(),
   claim: vi.fn(),
   complete: vi.fn(),
+  markUnknown: vi.fn(),
   acknowledged: vi.fn(),
   auditCreate: vi.fn(),
   auditUpdate: vi.fn(),
   setState: vi.fn(),
   acquireSlot: vi.fn(),
   releaseLock: vi.fn(),
+  acquireTargetHold: vi.fn(),
+  releaseTargetHold: vi.fn(),
   publishLogChunk: vi.fn(),
   findUser: vi.fn(),
   findJob: vi.fn(),
@@ -49,10 +52,15 @@ vi.mock("../services/jobExecutionRouter.js", () => ({
 vi.mock("../services/jobRunService.js", () => ({
   claimRunForDispatch: mocks.claim,
   completeRun: mocks.complete,
+  markRunUnknown: mocks.markUnknown,
   markRunAcknowledged: mocks.acknowledged,
 }));
 vi.mock("../services/distributedLock.js", () => ({
   releaseJobLock: mocks.releaseLock,
+}));
+vi.mock("../services/executionTargetHoldService.js", () => ({
+  acquireExecutionTargetHold: mocks.acquireTargetHold,
+  releaseExecutionTargetHold: mocks.releaseTargetHold,
 }));
 vi.mock("../services/dagStateManager.js", () => ({
   acquireExecutionSlot: mocks.acquireSlot,
@@ -124,9 +132,12 @@ beforeEach(() => {
     tokenVersion: 0,
   });
   mocks.complete.mockResolvedValue({});
+  mocks.markUnknown.mockResolvedValue({});
   mocks.acknowledged.mockResolvedValue({});
   mocks.historyCreate.mockResolvedValue({});
   mocks.acquireSlot.mockResolvedValue({ acquired: true, fencingToken: 1 });
+  mocks.acquireTargetHold.mockResolvedValue({ acquired: true });
+  mocks.releaseTargetHold.mockResolvedValue({ released: true });
   mocks.publishLogChunk.mockResolvedValue(undefined);
   mocks.findUser.mockResolvedValue({ _id: DATA.triggeredBy.userId, role: "operator" });
   mocks.findJob.mockResolvedValue({
@@ -184,6 +195,29 @@ describe("job worker protocol-v2 behavior", () => {
       "immediate-jobs:bull-1",
       expect.any(Number),
     );
+    expect(mocks.acquireTargetHold).toHaveBeenCalledWith({
+      organizationId: DATA.orgId,
+      targetAgentId: DATA.targetAgentId,
+      runId: DATA.runId,
+      attemptId: DATA.attemptId,
+      fencingToken: 1,
+    });
+    expect(mocks.acquireTargetHold.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.claim.mock.invocationCallOrder[0],
+    );
+    expect(mocks.acquireTargetHold.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.dispatch.mock.invocationCallOrder[0],
+    );
+    expect(mocks.releaseTargetHold).toHaveBeenCalledWith(
+      {
+        organizationId: DATA.orgId,
+        targetAgentId: DATA.targetAgentId,
+        runId: DATA.runId,
+        attemptId: DATA.attemptId,
+        fencingToken: 1,
+      },
+      "COMPLETED",
+    );
     expect(mocks.releaseLock).toHaveBeenCalledWith(
       `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
       "immediate-jobs:bull-1",
@@ -228,6 +262,7 @@ describe("job worker protocol-v2 behavior", () => {
       expect.objectContaining({ status: "UNKNOWN" }),
     );
     expect(mocks.releaseLock).not.toHaveBeenCalled();
+    expect(mocks.releaseTargetHold).not.toHaveBeenCalled();
   });
 
   it("releases the target lock when dispatch is proven not emitted", async () => {
@@ -245,6 +280,79 @@ describe("job worker protocol-v2 behavior", () => {
       DATA.runId,
       DATA.attemptId,
       expect.objectContaining({ status: "REJECTED", outcome: "REJECTED" }),
+    );
+    expect(mocks.releaseLock).toHaveBeenCalledWith(
+      `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
+      "immediate-jobs:bull-1",
+    );
+    expect(mocks.releaseTargetHold).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: DATA.runId, attemptId: DATA.attemptId }),
+      "REJECTED",
+    );
+  });
+
+  it("fails closed without dispatch when durable target ownership is already held", async () => {
+    mocks.acquireTargetHold.mockResolvedValue({
+      acquired: false,
+      owner: { runId: "other-run", attemptId: "other-attempt", fencingToken: 9 },
+    });
+
+    await expect(jobProcessor(queueJob())).rejects.toMatchObject({
+      code: "CONCURRENT_TARGET_EXECUTION",
+    });
+    expect(mocks.claim).toHaveBeenCalledOnce();
+    expect(mocks.complete).toHaveBeenCalledWith(
+      DATA.runId,
+      DATA.attemptId,
+      expect.objectContaining({
+        status: "REJECTED",
+        outcome: "REJECTED",
+        reasonCode: "CONCURRENT_TARGET_EXECUTION",
+      }),
+    );
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.releaseTargetHold).not.toHaveBeenCalled();
+    expect(mocks.releaseLock).toHaveBeenCalledWith(
+      `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
+      "immediate-jobs:bull-1",
+    );
+  });
+
+  it("marks the run UNKNOWN and dispatches nothing when durable hold I/O is uncertain", async () => {
+    mocks.acquireTargetHold.mockRejectedValue(new Error("mongo unavailable"));
+
+    await expect(jobProcessor(queueJob())).rejects.toMatchObject({
+      code: "EXECUTION_TARGET_HOLD_UNKNOWN",
+    });
+    expect(mocks.markUnknown).toHaveBeenCalledWith(
+      DATA.runId,
+      "EXECUTION_TARGET_HOLD_UNKNOWN",
+      ["ACCEPTED", "QUEUED"],
+    );
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.releaseTargetHold).not.toHaveBeenCalled();
+    expect(mocks.releaseLock).not.toHaveBeenCalled();
+  });
+
+  it("releases a newly acquired hold when the run is already conclusively terminal", async () => {
+    mocks.claim.mockResolvedValue({
+      claimed: false,
+      run: {
+        status: "SUCCEEDED",
+        terminalSummary: { outcome: "COMPLETED" },
+      },
+    });
+
+    await expect(jobProcessor(queueJob())).resolves.toMatchObject({
+      status: "succeeded",
+      duplicateDelivery: true,
+    });
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.releaseTargetHold).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: DATA.runId, attemptId: DATA.attemptId }),
+      "COMPLETED",
     );
     expect(mocks.releaseLock).toHaveBeenCalledWith(
       `org:${DATA.orgId}:agent:${DATA.targetAgentId}`,
@@ -270,6 +378,7 @@ describe("job worker protocol-v2 behavior", () => {
     );
     expect(mocks.dispatch).not.toHaveBeenCalled();
     expect(mocks.releaseLock).not.toHaveBeenCalled();
+    expect(mocks.releaseTargetHold).not.toHaveBeenCalled();
   });
 
   it("marks the outcome UNKNOWN when acknowledgment persistence fails", async () => {
@@ -292,6 +401,7 @@ describe("job worker protocol-v2 behavior", () => {
       }),
     );
     expect(mocks.releaseLock).not.toHaveBeenCalled();
+    expect(mocks.releaseTargetHold).not.toHaveBeenCalled();
   });
 
   it("retains the target lock when a result is lost after acknowledgment", async () => {
@@ -313,6 +423,7 @@ describe("job worker protocol-v2 behavior", () => {
       expect.objectContaining({ status: "UNKNOWN", outcome: "UNKNOWN" }),
     );
     expect(mocks.releaseLock).not.toHaveBeenCalled();
+    expect(mocks.releaseTargetHold).not.toHaveBeenCalled();
   });
 
   it("preserves a successful run when live output publication fails", async () => {
@@ -381,6 +492,7 @@ describe("job worker protocol-v2 behavior", () => {
       }),
     );
     expect(mocks.releaseLock).not.toHaveBeenCalled();
+    expect(mocks.releaseTargetHold).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -427,6 +539,7 @@ describe("job worker protocol-v2 behavior", () => {
       ),
     ).rejects.toMatchObject({ code: "PROTOCOL_V2_RUN_REQUIRED" });
     expect(mocks.findAgent).not.toHaveBeenCalled();
+    expect(mocks.acquireTargetHold).not.toHaveBeenCalled();
     expect(mocks.dispatch).not.toHaveBeenCalled();
   });
 });

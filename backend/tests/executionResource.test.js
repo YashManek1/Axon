@@ -31,14 +31,14 @@ describe("execution resource lock lifetime", () => {
       timeoutMs: 300_000,
       startBefore: 1_060_000,
       now: 1_000_000,
-    })).toBe(375);
+    })).toBe(405);
   });
 
   it("clamps untrusted queue bounds and keeps a safe minimum", () => {
     expect(calculateExecutionLockTtlSeconds({ timeoutMs: 1, startBefore: 9_000_000, now: 0 }))
-      .toBe(76);
+      .toBe(106);
     expect(calculateExecutionLockTtlSeconds({ timeoutMs: Number.MAX_SAFE_INTEGER, now: 0 }))
-      .toBe(315);
+      .toBe(345);
     expect(calculateExecutionLockTtlSeconds({ timeoutMs: 100, startBefore: 0, now: 0 }))
       .toBe(60);
   });

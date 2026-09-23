@@ -10,6 +10,10 @@ import { decrypt } from "../utils/crypto.js";
 import { createChildLogger } from "../config/logger.js";
 import { releaseJobLock } from "../services/distributedLock.js";
 import {
+  acquireExecutionTargetHold,
+  releaseExecutionTargetHold,
+} from "../services/executionTargetHoldService.js";
+import {
   acquireExecutionSlot,
   checkDependenciesMet,
   setJobState,
@@ -25,6 +29,7 @@ import {
 import {
   claimRunForDispatch,
   completeRun,
+  markRunUnknown,
   markRunAcknowledged,
 } from "../services/jobRunService.js";
 import { publishLogChunk } from "../services/logStreamBroker.js";
@@ -43,6 +48,12 @@ import {
 } from "./telemetryFlushWorker.js";
 
 const logger = createChildLogger({ module: "job-worker" });
+const CONCLUSIVE_EXECUTION_OUTCOMES = new Set([
+  "COMPLETED",
+  "REJECTED",
+  "TIMED_OUT",
+  "CANCELLED",
+]);
 
 export function configureJobWorker(io) {
   configureJobExecutionRouter(io);
@@ -213,6 +224,7 @@ export const jobProcessor = async (job) => {
   let reasonCode = null;
   let executionOutcome = null;
   let runCompleted = false;
+  let durableHoldOwner = null;
   const startTime = Date.now();
   const workerId = `${job.queueName}:${job.id}`;
   const executionResourceKey = buildExecutionResourceKey({ orgId, targetAgentId, jobId });
@@ -381,8 +393,71 @@ export const jobProcessor = async (job) => {
         throw legacyError;
       }
 
+      const proposedHoldOwner = {
+        organizationId: orgId,
+        targetAgentId,
+        runId,
+        attemptId,
+        fencingToken,
+      };
+      let durableHold;
+      try {
+        durableHold = await acquireExecutionTargetHold(proposedHoldOwner);
+      } catch (holdError) {
+        reasonCode = "EXECUTION_TARGET_HOLD_UNKNOWN";
+        await markRunUnknown(runId, reasonCode, ["ACCEPTED", "QUEUED"]);
+        runCompleted = true;
+        const uncertaintyError = new Error(
+          "Axon could not establish durable target ownership; execution was not dispatched",
+        );
+        uncertaintyError.code = reasonCode;
+        uncertaintyError.cause = holdError;
+        throw uncertaintyError;
+      }
+
+      if (!durableHold.acquired) {
+        const blockedClaim = await claimRunForDispatch(job.data);
+        if (!blockedClaim.claimed) {
+          await safeUpdateAuditRecord(
+            auditId,
+            {
+              status: "SKIPPED",
+              completedAt: new Date(),
+              durationMs: Date.now() - startTime,
+              stderrSummary: "duplicate-or-finalized-run-delivery",
+            },
+            jobLogger,
+          );
+          return {
+            status: String(blockedClaim.run.status).toLowerCase(),
+            jobId,
+            runId,
+            attemptId,
+            duplicateDelivery: true,
+          };
+        }
+
+        reasonCode = "CONCURRENT_TARGET_EXECUTION";
+        await completeRun(runId, attemptId, {
+          status: "REJECTED",
+          outcome: "REJECTED",
+          reasonCode,
+        });
+        runCompleted = true;
+        const conflictError = new Error(
+          "Another operation owns durable execution rights for this target",
+        );
+        conflictError.code = reasonCode;
+        throw conflictError;
+      }
+      durableHoldOwner = proposedHoldOwner;
+
       const dispatchClaim = await claimRunForDispatch(job.data);
       if (!dispatchClaim.claimed) {
+        const terminalOutcome = dispatchClaim.run?.terminalSummary?.outcome;
+        if (CONCLUSIVE_EXECUTION_OUTCOMES.has(terminalOutcome)) {
+          executionOutcome = terminalOutcome;
+        }
         await safeUpdateAuditRecord(
           auditId,
           {
@@ -629,6 +704,7 @@ export const jobProcessor = async (job) => {
       "EXECUTION_RESULT_UNKNOWN",
       "EXECUTION_STATE_PERSISTENCE_UNKNOWN",
       "EXECUTION_RESULT_PERSISTENCE_UNKNOWN",
+      "EXECUTION_TARGET_HOLD_UNKNOWN",
     ]);
     reasonCode = unknownCodes.has(err.code)
       ? err.code
@@ -752,6 +828,26 @@ export const jobProcessor = async (job) => {
 
     return { status, jobId, runId, attemptId, duration };
   } finally {
+    if (
+      durableHoldOwner &&
+      status !== "unknown" &&
+      executionOutcome &&
+      executionOutcome !== "UNKNOWN"
+    ) {
+      try {
+        await releaseExecutionTargetHold(durableHoldOwner, executionOutcome);
+      } catch (holdReleaseError) {
+        jobLogger.error(
+          { err: holdReleaseError, runId, attemptId, targetAgentId },
+          "Failed to release durable target ownership; retaining the hold",
+        );
+      }
+    } else if (durableHoldOwner) {
+      jobLogger.warn(
+        { runId, attemptId, targetAgentId, executionOutcome },
+        "Retaining durable target ownership because execution outcome is not conclusive",
+      );
+    }
     if (status === "unknown") {
       jobLogger.warn(
         { executionResourceKey, executionLockTtlSeconds, reasonCode },
