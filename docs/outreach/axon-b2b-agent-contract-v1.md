@@ -1,6 +1,6 @@
 # Axon B2B outreach agent contract v1
 
-Status: implemented local review pipeline. No live research, contact resolution, approval, scheduling, or sending.
+Status: implemented local review pipeline. Three first-party service descriptions have been manually researched for a separate discovery-review packet; the code does not perform live research, contact resolution, approval, scheduling, or sending.
 
 ## Product decision
 
@@ -67,9 +67,10 @@ Local review artifacts do not establish that an account may lawfully or appropri
 ## Next implementation slices
 
 1. DONE locally: schema-2 source capture records URL, source type, publication/retrieval times, verbatim excerpt, excerpt digest, and saved-text digest. It is read-only and has no browser/HTTP adapter; a human must still verify source authenticity and claim context.
-2. IN PROGRESS: publication-based trigger freshness, explicit contradiction rejection, and score-to-fact/use-case binding are implemented. Next evaluate research quality on a labeled set with misleading publication dates, vague pain, and weak buyer/assessment evidence.
-3. Add an organization-level campaign review UI and immutable approval object bound to bundle checksum, reviewer, expiry, and exact items.
-4. Design contact resolution and suppression as a separate privacy-reviewed service. Do not copy contacts or credentials from the Desktop sender.
-5. Add a provider adapter only after independent security, legal/deliverability, sandbox, and canary acceptance. Sending must consume a still-valid approval and re-check suppression transactionally.
+2. DONE locally for research review: an unqualified discovery lane records first-party service-fit hypotheses and questions for three organizations without representing them as qualified leads. Its separate `axon_discovery_review` artifact remains `DISCOVERY_REVIEW_ONLY`; all execution capabilities are false, and qualified-artifact validators reject it. The excerpts were supplied manually and require human source review.
+3. IN PROGRESS: publication-based trigger freshness, explicit contradiction rejection, and score-to-fact/use-case binding are implemented. Next evaluate research quality on a labeled set with misleading publication dates, vague pain, and weak buyer/assessment evidence.
+4. Add an organization-level campaign review UI and immutable approval object bound to bundle checksum, reviewer, expiry, and exact items.
+5. Design contact resolution and suppression as a separate privacy-reviewed service. Do not copy contacts or credentials from the Desktop sender.
+6. Add a provider adapter only after independent security, legal/deliverability, sandbox, and canary acceptance. Sending must consume a still-valid approval and re-check suppression transactionally.
 
 A successful current run proves only that supplied evidence can become a locally reviewable, policy-checked bundle. It does not prove live research quality, deliverability, legal eligibility, reply rate, or client acquisition.

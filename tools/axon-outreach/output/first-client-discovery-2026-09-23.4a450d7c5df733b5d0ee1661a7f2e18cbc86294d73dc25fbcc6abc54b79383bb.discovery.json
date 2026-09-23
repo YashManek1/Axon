@@ -1,0 +1,153 @@
+{
+  "artifact_type": "axon_discovery_review",
+  "batch_id": "first-client-discovery-2026-09-23",
+  "capabilities": {
+    "can_access_mailbox": false,
+    "can_access_provider": false,
+    "can_approve": false,
+    "can_load_credentials": false,
+    "can_research_network": false,
+    "can_resolve_personal_contacts": false,
+    "can_schedule": false,
+    "can_send": false
+  },
+  "items": [
+    {
+      "account_id": "dailydeploy",
+      "discovery_question": "If you have recurring infrastructure delivery work, how do you validate it and capture handoff evidence today?",
+      "domain": "dailydeploy.in",
+      "draft": {
+        "body": "I noticed this on your site: \"DailyDeploy handles cloud, Kubernetes, and CI/CD so your team can focus on the product.\" I am building Axon, which maps one approved non-production procedure to an exact target and returns a reviewable evidence bundle. If you have recurring infrastructure delivery work, how do you validate it and capture handoff evidence today? If this is not relevant, let me know and I will not follow up.",
+        "subject": "Question about infrastructure delivery at DailyDeploy"
+      },
+      "exclusions": [],
+      "facts": [
+        {
+          "evidence_id": "dailydeploy-site-1",
+          "source_capture": {
+            "excerpt": "DailyDeploy handles cloud, Kubernetes, and CI/CD so your team can focus on the product.",
+            "excerpt_sha256": "11dc69fbff718444447e95a56536bb271693cd16eaa91442e579232b1c55cfb7",
+            "published_at": null,
+            "retrieved_at": "2026-09-23T14:59:32+00:00",
+            "snapshot_sha256": "11dc69fbff718444447e95a56536bb271693cd16eaa91442e579232b1c55cfb7",
+            "source_type": "first_party_site",
+            "source_url": "https://dailydeploy.in/"
+          },
+          "text": "DailyDeploy handles cloud, Kubernetes, and CI/CD so your team can focus on the product."
+        }
+      ],
+      "fit_rationale": {
+        "hypothesis": "Possible fit for recurring infrastructure delivery work; unconfirmed.",
+        "supporting_evidence_ids": [
+          "dailydeploy-site-1"
+        ]
+      },
+      "organization": "DailyDeploy",
+      "qualification_status": "not_assessed",
+      "requires_human_source_review": true,
+      "role_category": "Founder / infrastructure lead",
+      "source_verification": "supplied_capture_not_independently_verified",
+      "unknowns": [
+        "own_repeated_procedure",
+        "measured_pain",
+        "alternative_gap",
+        "budget_owner",
+        "safe_target_permission"
+      ],
+      "workflow_label": "infrastructure delivery"
+    },
+    {
+      "account_id": "ixmops",
+      "discovery_question": "If you have recurring platform support work, how do you validate it and capture handoff evidence today?",
+      "domain": "ixmops.com",
+      "draft": {
+        "body": "I noticed this on your site: \"Ongoing infrastructure maintenance, incident support, technical operations, and engineering retainers you can rely on.\" I am building Axon, which maps one approved non-production procedure to an exact target and returns a reviewable evidence bundle. If you have recurring platform support work, how do you validate it and capture handoff evidence today? If this is not relevant, let me know and I will not follow up.",
+        "subject": "Question about platform support at ixmops"
+      },
+      "exclusions": [],
+      "facts": [
+        {
+          "evidence_id": "ixmops-site-1",
+          "source_capture": {
+            "excerpt": "Ongoing infrastructure maintenance, incident support, technical operations, and engineering retainers you can rely on.",
+            "excerpt_sha256": "5d354aba8403101814e812bcfb9131dde289e3f21f15a02f9790eee20ecb4bcb",
+            "published_at": null,
+            "retrieved_at": "2026-09-23T14:59:32+00:00",
+            "snapshot_sha256": "5d354aba8403101814e812bcfb9131dde289e3f21f15a02f9790eee20ecb4bcb",
+            "source_type": "first_party_site",
+            "source_url": "https://ixmops.com/"
+          },
+          "text": "Ongoing infrastructure maintenance, incident support, technical operations, and engineering retainers you can rely on."
+        }
+      ],
+      "fit_rationale": {
+        "hypothesis": "Possible fit for recurring platform support work; unconfirmed.",
+        "supporting_evidence_ids": [
+          "ixmops-site-1"
+        ]
+      },
+      "organization": "ixmops",
+      "qualification_status": "not_assessed",
+      "requires_human_source_review": true,
+      "role_category": "Founder / operations lead",
+      "source_verification": "supplied_capture_not_independently_verified",
+      "unknowns": [
+        "own_repeated_procedure",
+        "measured_pain",
+        "alternative_gap",
+        "budget_owner",
+        "safe_target_permission"
+      ],
+      "workflow_label": "platform support"
+    },
+    {
+      "account_id": "antops",
+      "discovery_question": "If you have recurring managed operations work, how do you validate it and capture handoff evidence today?",
+      "domain": "antops.co.in",
+      "draft": {
+        "body": "I noticed this on your site: \"Server operations & patch planning\" I am building Axon, which maps one approved non-production procedure to an exact target and returns a reviewable evidence bundle. If you have recurring managed operations work, how do you validate it and capture handoff evidence today? If this is not relevant, let me know and I will not follow up.",
+        "subject": "Question about managed operations at ANTOPS"
+      },
+      "exclusions": [],
+      "facts": [
+        {
+          "evidence_id": "antops-site-1",
+          "source_capture": {
+            "excerpt": "Server operations & patch planning",
+            "excerpt_sha256": "5b8eb4df68173dd1537925a0fce704cd1d5110af83686084fa9e92ee96b02057",
+            "published_at": null,
+            "retrieved_at": "2026-09-23T14:59:32+00:00",
+            "snapshot_sha256": "5b8eb4df68173dd1537925a0fce704cd1d5110af83686084fa9e92ee96b02057",
+            "source_type": "first_party_site",
+            "source_url": "https://www.antops.co.in/"
+          },
+          "text": "Server operations & patch planning"
+        }
+      ],
+      "fit_rationale": {
+        "hypothesis": "Possible fit for recurring managed operations work; unconfirmed.",
+        "supporting_evidence_ids": [
+          "antops-site-1"
+        ]
+      },
+      "organization": "ANTOPS",
+      "qualification_status": "not_assessed",
+      "requires_human_source_review": true,
+      "role_category": "Founder / service delivery lead",
+      "source_verification": "supplied_capture_not_independently_verified",
+      "unknowns": [
+        "own_repeated_procedure",
+        "measured_pain",
+        "alternative_gap",
+        "budget_owner",
+        "safe_target_permission"
+      ],
+      "workflow_label": "managed operations"
+    }
+  ],
+  "mode": "dry_run",
+  "packet_sha256": "4a450d7c5df733b5d0ee1661a7f2e18cbc86294d73dc25fbcc6abc54b79383bb",
+  "prepared_at": "2026-09-23T14:59:32+00:00",
+  "schema_version": 1,
+  "state": "DISCOVERY_REVIEW_ONLY"
+}

@@ -61,3 +61,17 @@ capture = capture_source(
 This validates internal consistency, not whether the URL is genuinely first-party, the page was actually retrieved then, or the claim proves budget or intent. The reviewer must open the original public source, check the date and context, and judge the score before approving any recipient batch. SHA-256 makes accidental changes visible; it is not a signature or proof of external truth. Existing version-1 bundles remain verifiable, while new pipeline runs require schema 2.
 
 See `docs/outreach/axon-b2b-agent-contract-v1.md` for the role contracts, authority model, commercial method, and next slices.
+
+## Unqualified discovery research lane
+
+`axon_outreach.discovery_cli` turns manually supplied, organization-level first-party excerpts into a separate `axon_discovery_review` packet. It is not a qualified manifest, recipient batch, approval, or campaign. This lane exists because a service page can show plausible fit without proving that the seller has its own recurring procedure, measurable pain, inadequate alternative, budget owner, or safe permission to contact. All five remain explicit unknowns. A recent retrieval of an undated service page is allowed as research context, never as a published trigger or urgency signal.
+
+Run from this package directory:
+
+```powershell
+python -m axon_outreach.discovery_cli first-client-discovery-2026-09-23.json
+```
+
+The input contains three organizations: DailyDeploy, ixmops, and ANTOPS. The source captures are **excerpt-only manual transcriptions** from their public sites: `snapshot_sha256` hashes each supplied excerpt, not a saved full page. The code checks internal consistency, age, first-party domain and prohibited personal data. It does not independently fetch the site or prove the excerpt is current or in context. The packet therefore requires human source review and cannot enter the existing qualified pipeline. Its drafts are discovery questions, not send instructions. All capability flags remain false; there is no contact, approval or provider path.
+
+Before considering any contact, a reviewer must open each linked page and verify the exact wording, reject competitors/exclusions, assess jurisdiction and organization-level routing, then explicitly decide whether a small, separately approved discovery batch is appropriate. No buyer pain or buying intent has been established by these pages. The qualified 7/10 path remains unchanged.
