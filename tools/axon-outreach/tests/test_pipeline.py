@@ -22,6 +22,10 @@ from axon_outreach.pipeline import (  # noqa: E402
 )
 
 
+from axon_outreach.source_capture import capture_source  # noqa: E402
+from axon_outreach.validation import ValidationError  # noqa: E402
+
+
 FIXTURE = ROOT / "input" / "synthetic-agent-pipeline.json"
 
 
@@ -80,7 +84,7 @@ class OutreachPipelineTests(unittest.TestCase):
 
     def test_stale_trigger_is_rejected(self) -> None:
         data = qualified_pipeline_input()
-        data["accounts"][0]["evidence"][0]["observed_at"] = (
+        data["accounts"][0]["evidence"][0]["source_capture"]["published_at"] = (
             "2025-01-01T09:00:00+05:30"
         )
 
@@ -88,6 +92,53 @@ class OutreachPipelineTests(unittest.TestCase):
 
         self.assertEqual(bundle["manifest"]["items"], [])
         self.assertEqual(bundle["decisions"][0]["reason_code"], "STALE_RESEARCH")
+
+    def test_recent_retrieval_without_publication_is_not_a_fresh_trigger(self) -> None:
+        data = qualified_pipeline_input()
+        data["accounts"][0]["evidence"][0]["source_capture"]["published_at"] = None
+        bundle = build_campaign_bundle(data)
+        self.assertEqual(bundle["decisions"][0]["reason_code"], "STALE_RESEARCH")
+
+    def test_high_score_without_matching_verified_pain_is_rejected(self) -> None:
+        data = qualified_pipeline_input()
+        data["accounts"][0]["evidence"][1]["fact_type"] = "service_offering"
+        bundle = build_campaign_bundle(data)
+        self.assertEqual(bundle["decisions"][0]["reason_code"], "UNSUPPORTED_SCORE")
+
+    def test_score_evidence_must_be_in_selected_use_case(self) -> None:
+        data = qualified_pipeline_input()
+        ids = data["accounts"][0]["candidate_use_cases"][0]["supporting_evidence_ids"]
+        ids.remove("public-incident")
+        bundle = build_campaign_bundle(data)
+        self.assertEqual(bundle["decisions"][0]["reason_code"], "UNSUPPORTED_SCORE")
+
+    def test_source_capture_url_and_excerpt_hash_are_bound(self) -> None:
+        for field, value in (
+            ("source_url", "https://example.invalid/unrelated"),
+            ("excerpt_sha256", "0" * 64),
+        ):
+            with self.subTest(field=field):
+                data = qualified_pipeline_input()
+                data["accounts"][0]["evidence"][0]["source_capture"][field] = value
+                bundle = build_campaign_bundle(data)
+                self.assertEqual(bundle["decisions"][0]["reason_code"], "SOURCE_CAPTURE_REJECTED")
+
+    def test_verified_fact_must_match_captured_excerpt(self) -> None:
+        data = qualified_pipeline_input()
+        data["accounts"][0]["evidence"][0]["text"] = "Synthetic Platform has an urgent need to buy Axon."
+        bundle = build_campaign_bundle(data)
+        self.assertEqual(bundle["decisions"][0]["reason_code"], "SOURCE_CAPTURE_REJECTED")
+
+    def test_capture_requires_verbatim_excerpt_from_saved_snapshot(self) -> None:
+        with self.assertRaises(ValidationError):
+            capture_source(
+                "A public test page without the proposed claim",
+                source_url="https://example.invalid/source",
+                source_type="first_party_site",
+                retrieved_at="2026-09-19T09:00:00+05:30",
+                published_at="2026-09-18T09:00:00+05:30",
+                excerpt="Unsupported claim",
+            )
 
     def test_role_mismatch_is_rejected(self) -> None:
         data = qualified_pipeline_input()

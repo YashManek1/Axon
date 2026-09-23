@@ -15,11 +15,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .manifest import ManifestError, build_manifest, verify_manifest
+from .manifest import ManifestError, SCORE_FACT_TYPES, build_manifest, verify_manifest
+from .source_capture import validate_capture
 from .validation import ValidationError, exact_mapping, public_https_url, safe_text, timestamp
 
 
-PIPELINE_VERSION = 1
+PIPELINE_VERSION = 2
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 MAX_TRIGGER_AGE = timedelta(days=120)
 MAX_PLANNING_HORIZON = timedelta(days=30)
@@ -52,6 +53,7 @@ ACCOUNT_KEYS = {
 }
 EVIDENCE_KEYS = {
     "evidence_id", "kind", "text", "source_url", "observed_at", "is_trigger",
+    "source_capture", "fact_type",
 }
 USE_CASE_KEYS = {
     "use_case_id", "title", "problem_hypothesis", "owner_roles",
@@ -61,6 +63,8 @@ SCORE_KEYS = {
     "repeated_procedure", "cost_or_failure_pain", "buyer_access_or_budget",
     "current_alternative_gap", "safe_assessment_path",
 }
+
+OTHER_FACT_TYPES = {"dated_trigger", "service_offering"}
 
 
 class PipelineError(ValueError):
@@ -240,15 +244,32 @@ class ResearchAgent:
                 raise PipelineError("MANIFEST_REJECTED", "future evidence is not allowed")
             if type(entry["is_trigger"]) is not bool:
                 raise PipelineError("MANIFEST_REJECTED", "is_trigger must be boolean")
+            if entry["kind"] == "verified_fact":
+                try:
+                    capture = validate_capture(entry["source_capture"], f"account.evidence[{index}].source_capture")
+                except ValidationError as exc:
+                    raise PipelineError("SOURCE_CAPTURE_REJECTED", str(exc)) from exc
+                if capture["source_url"] != entry["source_url"]:
+                    raise PipelineError("SOURCE_CAPTURE_REJECTED", "capture URL must match evidence URL")
+                if capture["excerpt"] != entry["text"]:
+                    raise PipelineError("SOURCE_CAPTURE_REJECTED", "verified fact must match the captured excerpt")
+                if entry["fact_type"] not in set(SCORE_FACT_TYPES.values()) | OTHER_FACT_TYPES:
+                    raise PipelineError("MANIFEST_REJECTED", "verified fact_type is unsupported")
+                if _time(capture["retrieved_at"], "capture.retrieved_at") != evidence_time:
+                    raise PipelineError("SOURCE_CAPTURE_REJECTED", "evidence observed_at must equal source retrieval time")
+                entry["source_capture"] = capture
+            elif entry["source_capture"] is not None or entry["fact_type"] is not None:
+                raise PipelineError("SOURCE_CAPTURE_REJECTED", "inferences cannot carry verified source attributes")
             if entry["is_trigger"] and entry["kind"] == "verified_fact":
-                age = prepared_at - evidence_time
-                if timedelta(0) <= age <= MAX_TRIGGER_AGE:
+                published_at = entry["source_capture"]["published_at"]
+                age = prepared_at - _time(published_at, "capture.published_at") if published_at else None
+                if age is not None and timedelta(0) <= age <= MAX_TRIGGER_AGE:
                     fresh_trigger = True
             evidence.append(entry)
         if not any(x["kind"] == "verified_fact" for x in evidence):
             raise PipelineError("MANIFEST_REJECTED", "at least one verified fact is required")
         if not fresh_trigger:
-            raise PipelineError("STALE_RESEARCH", "no verified trigger is within 120 days")
+            raise PipelineError("STALE_RESEARCH", "no verified, published trigger is within 120 days")
         item["evidence"] = evidence
         return item
 
@@ -263,6 +284,10 @@ class QualificationAgent:
             raise PipelineError("MANIFEST_REJECTED", "score components must be integers from 0 to 2")
         if type(score["total"]) is not int or score["total"] != sum(components.values()):
             raise PipelineError("MANIFEST_REJECTED", "score total must equal component sum")
+        verified_types = {entry["fact_type"] for entry in account["evidence"] if entry["kind"] == "verified_fact"}
+        unsupported_high = [name for name, value in components.items() if value > 0 and SCORE_FACT_TYPES[name] not in verified_types]
+        if unsupported_high:
+            raise PipelineError("UNSUPPORTED_SCORE", f"positive score requires matching verified evidence: {unsupported_high}")
         if score["total"] < 7:
             raise PipelineError("BELOW_QUALIFICATION_THRESHOLD", "score is below 7/10")
         score["components"] = components
@@ -366,6 +391,9 @@ class VerificationAgent:
             raise PipelineError("MESSAGE_QUALITY_REJECTED", "draft failed quality review")
         evidence_by_id = {entry["evidence_id"]: entry for entry in account["evidence"]}
         selected = [evidence_by_id[key] for key in use_case["supporting_evidence_ids"]]
+        selected_types = {entry["fact_type"] for entry in selected if entry["kind"] == "verified_fact"}
+        if any(SCORE_FACT_TYPES[name] not in selected_types for name, value in score["components"].items() if value > 0):
+            raise PipelineError("UNSUPPORTED_SCORE", "scored facts must support the selected use case")
         sources = list(dict.fromkeys(entry["source_url"] for entry in selected))
         return {
             "account_id": account["account_id"],
@@ -379,6 +407,16 @@ class VerificationAgent:
             "message_version": account["message_version"],
             "recipient_route": account["recipient_route"],
             "source_urls": sources,
+            "research_provenance": [
+                {
+                    "evidence_id": x["evidence_id"],
+                    "source_url": x["source_url"],
+                    "fact_type": x["fact_type"],
+                    "fact_text": x["text"],
+                    "source_capture": copy.deepcopy(x["source_capture"]),
+                }
+                for x in selected if x["kind"] == "verified_fact"
+            ],
             "verified_facts": [x["text"] for x in selected if x["kind"] == "verified_fact"],
             "inferences": [x["text"] for x in selected if x["kind"] == "inference"],
             "score": copy.deepcopy(score),
@@ -413,8 +451,8 @@ class OutreachPipeline:
         prepared = _time(data["prepared_at"], "source.prepared_at")
         if prepared > now + MAX_CLOCK_SKEW:
             raise PipelineError("MANIFEST_REJECTED", "prepared_at is in the future")
-        if data["schema_version"] != 1 or data["profile"] != "axon_b2b" or data["mode"] != "dry_run":
-            raise PipelineError("MANIFEST_REJECTED", "pipeline is locked to axon_b2b dry_run schema 1")
+        if data["schema_version"] != 2 or data["profile"] != "axon_b2b" or data["mode"] != "dry_run":
+            raise PipelineError("MANIFEST_REJECTED", "pipeline is locked to axon_b2b dry_run schema 2")
         if not isinstance(data["accounts"], list):
             raise PipelineError("MANIFEST_REJECTED", "source.accounts must be a list")
 
@@ -527,7 +565,11 @@ def verify_bundle(bundle: Mapping[str, Any]) -> bool:
             "capabilities", "decisions", "manifest",
         }:
             return False
-        if candidate["pipeline_version"] != PIPELINE_VERSION:
+        if candidate["pipeline_version"] not in {1, PIPELINE_VERSION}:
+            return False
+        if candidate["pipeline_version"] == PIPELINE_VERSION and any(
+            "research_provenance" not in item for item in candidate["manifest"]["items"]
+        ):
             return False
         if candidate["agents"] != list(AGENT_SPECS):
             return False

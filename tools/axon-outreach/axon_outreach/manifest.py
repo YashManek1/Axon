@@ -11,12 +11,20 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .validation import ValidationError, exact_mapping, public_https_url, safe_text, timestamp
+from .source_capture import validate_capture
 
 PROFILE = "axon_b2b"
 MODE = "dry_run"
 SCHEMA_VERSION = 1
 QUALIFICATION_THRESHOLD = 7
 SCORE_KEYS = {"repeated_procedure", "cost_or_failure_pain", "buyer_access_or_budget", "current_alternative_gap", "safe_assessment_path"}
+SCORE_FACT_TYPES = {
+    "repeated_procedure": "repeated_procedure",
+    "cost_or_failure_pain": "observed_pain",
+    "buyer_access_or_budget": "buyer_or_budget",
+    "current_alternative_gap": "alternative_gap",
+    "safe_assessment_path": "safe_assessment_path",
+}
 SOURCE_KEYS = {"schema_version", "profile", "mode", "batch_id", "prepared_at", "approval", "items", "zero_recipient_reason"}
 BASE_ITEM_KEYS = {
     "account_id", "organization", "domain", "observed_at", "jurisdiction",
@@ -203,12 +211,35 @@ def _validate_pipeline_fields(item: dict[str, Any], label: str) -> None:
 
 def _validate_item(raw: Any, index: int) -> dict[str, Any]:
     label = f"items[{index}]"
-    item = copy.deepcopy(_exact(raw, label, BASE_ITEM_KEYS | PIPELINE_ITEM_KEYS, optional=PIPELINE_ITEM_KEYS))
+    item = copy.deepcopy(_exact(raw, label, BASE_ITEM_KEYS | PIPELINE_ITEM_KEYS | {"research_provenance"}, optional=PIPELINE_ITEM_KEYS | {"research_provenance"}))
     forbidden = FORBIDDEN_PERSONAL_KEYS.intersection(_walk_keys(item))
     if forbidden:
         raise ManifestError(f"{label} contains forbidden personal-data keys: {sorted(forbidden)}")
     _validate_text_boundary(item, label)
     _validate_pipeline_fields(item, label)
+    if "research_provenance" in item:
+        if not PIPELINE_ITEM_KEYS <= item.keys():
+            raise ManifestError(f"{label}.research_provenance requires complete pipeline fields")
+        entries = item["research_provenance"]
+        if not isinstance(entries, list) or not entries:
+            raise ManifestError(f"{label}.research_provenance must be a non-empty list")
+        normalized = []
+        for evidence_index, raw in enumerate(entries):
+            evidence_label = f"{label}.research_provenance[{evidence_index}]"
+            entry = _exact(raw, evidence_label, {"evidence_id", "source_url", "fact_type", "fact_text", "source_capture"})
+            entry["evidence_id"] = _text(entry["evidence_id"], f"{evidence_label}.evidence_id")
+            entry["source_url"] = _url(entry["source_url"], f"{evidence_label}.source_url")
+            entry["fact_text"] = _text(entry["fact_text"], f"{evidence_label}.fact_text")
+            if entry["fact_type"] not in set(SCORE_FACT_TYPES.values()) | {"dated_trigger", "service_offering"}:
+                raise ManifestError(f"{evidence_label}.fact_type is unsupported")
+            try:
+                entry["source_capture"] = validate_capture(entry["source_capture"], f"{evidence_label}.source_capture")
+            except ValidationError as exc:
+                raise ManifestError(str(exc)) from exc
+            normalized.append(entry)
+        if len({x["evidence_id"] for x in normalized}) != len(normalized):
+            raise ManifestError(f"{label}.research_provenance evidence IDs must be unique")
+        item["research_provenance"] = normalized
 
     for key in ("account_id", "organization", "domain", "jurisdiction", "entity_type", "channel", "message_version"):
         item[key] = _text(item[key], f"{label}.{key}")
@@ -268,6 +299,24 @@ def _validate_item(raw: Any, index: int) -> dict[str, Any]:
             raise ManifestError(f"{claim_label} source is not in source_urls")
         normalized_ledger.append(claim)
     item["claim_ledger"] = normalized_ledger
+    if "research_provenance" in item:
+        if not all(entry["source_url"] in item["source_urls"] for entry in item["research_provenance"]):
+            raise ManifestError(f"{label}.research_provenance source must appear in source_urls")
+        fact_sources = {x["source_url"] for x in normalized_ledger if x["kind"] == "verified_fact"}
+        provenance_sources = {x["source_url"] for x in item["research_provenance"]}
+        if not fact_sources <= provenance_sources:
+            raise ManifestError(f"{label}.verified facts require research provenance")
+        provenance_facts = sorted((entry["fact_text"], entry["source_url"]) for entry in item["research_provenance"])
+        ledger_facts = sorted((claim["text"], claim["source_url"]) for claim in normalized_ledger if claim["kind"] == "verified_fact")
+        if provenance_facts != ledger_facts:
+            raise ManifestError(f"{label}.research_provenance must match verified claim ledger")
+        fact_types = {entry["fact_type"] for entry in item["research_provenance"]}
+        if any(SCORE_FACT_TYPES[name] not in fact_types for name, value in item["score"]["components"].items() if value > 0):
+            raise ManifestError(f"{label}.positive scores require matching verified provenance")
+        if not all(entry["source_capture"]["source_url"] == entry["source_url"] for entry in item["research_provenance"]):
+            raise ManifestError(f"{label}.research_provenance capture URL mismatch")
+        if not all(entry["source_capture"]["excerpt"] == entry["fact_text"] for entry in item["research_provenance"]):
+            raise ManifestError(f"{label}.research_provenance fact must match the captured excerpt")
 
     stable_key = {"account_id": item["account_id"], "channel": item["channel"], "message_version": item["message_version"], "draft": draft}
     item["idempotency_key"] = _sha256(stable_key)

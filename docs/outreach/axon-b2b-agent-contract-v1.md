@@ -66,8 +66,8 @@ Local review artifacts do not establish that an account may lawfully or appropri
 
 ## Next implementation slices
 
-1. Add read-only source adapters that capture URL, publication time, retrieval time, excerpt hash, and source type. Keep browsing isolated from pipeline policy.
-2. Add evidence contradiction and staleness checks, then evaluate research quality on a labeled synthetic set.
+1. DONE locally: schema-2 source capture records URL, source type, publication/retrieval times, verbatim excerpt, excerpt digest, and saved-text digest. It is read-only and has no browser/HTTP adapter; a human must still verify source authenticity and claim context.
+2. IN PROGRESS: publication-based trigger freshness, explicit contradiction rejection, and score-to-fact/use-case binding are implemented. Next evaluate research quality on a labeled set with misleading publication dates, vague pain, and weak buyer/assessment evidence.
 3. Add an organization-level campaign review UI and immutable approval object bound to bundle checksum, reviewer, expiry, and exact items.
 4. Design contact resolution and suppression as a separate privacy-reviewed service. Do not copy contacts or credentials from the Desktop sender.
 5. Add a provider adapter only after independent security, legal/deliverability, sandbox, and canary acceptance. Sending must consume a still-valid approval and re-check suppression transactionally.

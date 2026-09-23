@@ -82,6 +82,21 @@ class SecurityBoundaryTests(unittest.TestCase):
         rehash(manifest)
         self.assertFalse(verify_manifest(manifest))
 
+    def test_rehashed_provenance_cannot_inflate_qualification(self) -> None:
+        manifest = build_campaign_bundle(qualified_pipeline_input())["manifest"]
+        provenance = manifest["items"][0]["research_provenance"]
+        next(entry for entry in provenance if entry["fact_type"] == "observed_pain")[
+            "fact_type"
+        ] = "service_offering"
+        rehash(manifest)
+        self.assertFalse(verify_manifest(manifest))
+
+    def test_rehashed_provenance_cannot_detach_fact_from_excerpt(self) -> None:
+        manifest = build_campaign_bundle(qualified_pipeline_input())["manifest"]
+        manifest["items"][0]["research_provenance"][0]["fact_text"] = "Unrelated buying claim"
+        rehash(manifest)
+        self.assertFalse(verify_manifest(manifest))
+
     def test_unknown_ledger_field_is_rejected(self) -> None:
         source = qualified_input()
         source["items"][0]["claim_ledger"][0]["confidence"] = "high"
