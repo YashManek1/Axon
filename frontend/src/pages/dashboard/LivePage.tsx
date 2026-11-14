@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Play, RotateCcw } from "lucide-react";
 import { useJobs } from "../../hooks/useDashboardData";
 import { useAgentSocket } from "../../hooks/useAgentSocket";
-import { jobsAPI } from "../../services/api";
 import { toast } from "../../stores/toastStore";
+import { useNavigate } from "react-router-dom";
 
 function fmtTs(ms: number): string {
   return new Date(ms).toISOString().slice(11, 23);
@@ -12,8 +12,8 @@ function fmtTs(ms: number): string {
 export default function LivePage() {
   const { data: jobs = [] } = useJobs();
   const { connect, disconnect, recentLogs, loading: socketLoading } = useAgentSocket();
+  const navigate = useNavigate();
   const [selectedJobId, setSelectedJobId] = useState<string>("");
-  const [running, setRunning]  = useState(false);
   const termRef = useRef<HTMLDivElement>(null);
 
   const selectedJob = jobs.find((j) => j._id === selectedJobId);
@@ -33,21 +33,13 @@ export default function LivePage() {
     }
   }, [jobLogs]);
 
-  const handleRun = async () => {
+  const handleRun = () => {
     if (!selectedJobId) { toast.error("No job", "Select a job first"); return; }
     if (!selectedJobIsSupported) {
       toast.error("Unavailable in pilot", "Historical HTTP jobs are read-only and cannot be run.");
       return;
     }
-    setRunning(true);
-    try {
-      await jobsAPI.runNow(selectedJobId);
-      toast.success("Dispatched", selectedJob?.name ?? selectedJobId);
-    } catch {
-      toast.error("Failed", "Could not dispatch job");
-    } finally {
-      setRunning(false);
-    }
+    navigate("/dashboard/jobs/" + selectedJobId);
   };
 
   return (
@@ -68,8 +60,8 @@ export default function LivePage() {
               <option key={j._id} value={j._id}>{j.name}</option>
             ))}
           </select>
-          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={!selectedJobId || !selectedJobIsSupported || running} onClick={handleRun}>
-            <Play size={14} /> {running ? "Dispatching…" : "Run now"}
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={!selectedJobId || !selectedJobIsSupported} onClick={handleRun}>
+            <Play size={14} /> Review &amp; run
           </button>
         </div>
       </div>
@@ -99,7 +91,7 @@ export default function LivePage() {
               <div className="text-muted">Select a job to subscribe to its log stream.</div>
             )}
             {jobLogs.length === 0 && selectedJobId && (
-              <div className="text-muted">Waiting for output… run the job to see logs.</div>
+              <div className="text-muted">Waiting for output. Review the server preview before approving a run.</div>
             )}
             {jobLogs.map((chunk, i) => (
               <div key={i} className="text-ink-2">
@@ -159,7 +151,7 @@ export default function LivePage() {
                 {[
                   ["1", "Select a job above"],
                   ["2", "Terminal subscribes to its log stream via Socket.IO"],
-                  ["3", "Click Run now — control plane dispatches to agent"],
+                  ["3", "Review the server preview, then approve the launch from the job detail page"],
                   ["4", "stdout / stderr stream back in real-time"],
                   ["5", "Execution sealed to the audit log on completion"],
                 ].map(([n, t]) => (

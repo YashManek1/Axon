@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import JobsPage from "../pages/dashboard/JobsPage";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
@@ -34,6 +34,11 @@ vi.mock("../components/dashboard/JobFormSlide", () => ({
 const mockedUseJobs = vi.mocked(useJobs);
 const mockedJobsAPI = vi.mocked(jobsAPI);
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname}</output>;
+}
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -43,6 +48,7 @@ function renderPage() {
       <MemoryRouter>
         <JobsPage />
         <ConfirmDialog />
+        <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -74,7 +80,7 @@ describe("ActiveJobQueue", () => {
   it("renders empty state when jobs array is empty", () => {
     mockedUseJobs.mockReturnValue({ data: [], isLoading: false } as never);
     renderPage();
-    expect(screen.getByText("No jobs found")).toBeInTheDocument();
+    expect(screen.getByText(/No operations are available/)).toBeInTheDocument();
   });
 
   it("renders job rows when jobs are provided", () => {
@@ -96,53 +102,26 @@ describe("ActiveJobQueue", () => {
     renderPage();
 
     expect(screen.getByText("unsupported in pilot")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Run now" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review server-bound launch" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(mockedJobsAPI.runNow).not.toHaveBeenCalled();
     expect(mockedJobsAPI.toggle).not.toHaveBeenCalled();
   });
 
-  it("Run Now button becomes disabled while loading", async () => {
+  it("routes a shell review to its JobDetail approval page without direct launch effects", async () => {
     mockedUseJobs.mockReturnValue({
       data: [job(1)],
       isLoading: false,
     } as never);
-    let resolveRunNow: () => void = () => {};
-    mockedJobsAPI.runNow.mockReturnValue(
-      new Promise((resolve) => {
-        resolveRunNow = () => resolve({ data: {} });
-      }) as never,
-    );
 
     renderPage();
-    const button = screen.getByRole("button", { name: "Run now" });
-    await userEvent.click(button);
 
-    expect(button).toBeDisabled();
-    resolveRunNow();
-    await waitFor(() => expect(button).not.toBeDisabled());
-  });
+    await userEvent.click(screen.getByRole("button", { name: "Review server-bound launch" }));
 
-  it("shows the accepted shell run ID and status returned by the API", async () => {
-    mockedUseJobs.mockReturnValue({ data: [job(1)], isLoading: false, isError: false } as never);
-    mockedJobsAPI.runNow.mockResolvedValue({ data: { runId: "run-42", status: "QUEUED" } } as never);
-
-    renderPage();
-    await userEvent.click(screen.getByRole("button", { name: "Run now" }));
-
-    expect(await screen.findByRole("status")).toHaveTextContent("Run run-42: QUEUED");
-  });
-
-  it("shows the API rejection rather than claiming a launch", async () => {
-    mockedUseJobs.mockReturnValue({ data: [job(1)], isLoading: false, isError: false } as never);
-    mockedJobsAPI.runNow.mockRejectedValue({
-      response: { data: { code: "TARGET_AGENT_OFFLINE", message: "The selected agent is offline; no substitute target was used" } },
-    });
-
-    renderPage();
-    await userEvent.click(screen.getByRole("button", { name: "Run now" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("TARGET_AGENT_OFFLINE: The selected agent is offline; no substitute target was used");
+    expect(screen.getByTestId("location")).toHaveTextContent("/dashboard/jobs/job-1");
+    expect(mockedJobsAPI.runNow).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Run .*: /)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("clicking Delete opens the confirm dialog", async () => {

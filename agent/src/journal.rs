@@ -292,6 +292,24 @@ impl AttemptJournal {
         }
     }
 
+    /// Verifies whether an attempt is recorded as Terminal in the journal
+    /// and whether its outcome is conclusive/terminal (e.g. Unknown/Completed).
+    pub fn is_attempt_terminal_and_quiescent(&self, attempt_id: &str) -> Result<bool, JournalError> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| JournalError::Io("journal lock poisoned".to_string()))?;
+        let path = self.entry_path(attempt_id)?;
+        if !path.exists() {
+            return Ok(false);
+        }
+        let entry = self.load_entry_or_quarantine(&path, attempt_id)?;
+        match entry.state {
+            JournalState::Terminal => Ok(entry.terminal_result.is_some()),
+            JournalState::Received | JournalState::Running | JournalState::Quarantined => Ok(false),
+        }
+    }
+
     fn recover_interrupted(&self) -> Result<usize, JournalError> {
         let _guard = self
             .lock

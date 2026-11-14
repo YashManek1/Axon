@@ -21,6 +21,7 @@ class MockSocket extends EventEmitter {
     this.clientType = "agent";
     this.authGeneration = 0;
     this.protocolVersions = [2];
+    this.releaseId = process.env.AXON_RELEASE_ID;
   }
 
   emit(eventName, payload) {
@@ -198,6 +199,23 @@ async function createShellJob(token, overrides = {}) {
   return response.body.job;
 }
 
+async function approveAndRunShellJob(token, jobId) {
+  const previewResponse = await request(app)
+    .post(`/jobs/previewJobRun/${jobId}`)
+    .set("Authorization", auth(token))
+    .send({});
+
+  expect(previewResponse.status).toBe(201);
+  return request(app)
+    .post(`/jobs/runJobNow/${jobId}`)
+    .set("Authorization", auth(token))
+    .set("Idempotency-Key", crypto.randomUUID())
+    .send({
+      previewId: previewResponse.body.previewId,
+      previewHash: previewResponse.body.previewHash,
+    });
+}
+
 function latestImmediateJob(queueName = "immediate-jobs") {
   const [name, data] = immediateAdds[immediateAdds.length - 1];
   return {
@@ -234,9 +252,7 @@ describe("full job lifecycle e2e", () => {
     });
     expect(scheduledAdds).toHaveLength(0);
 
-    const triggerResponse = await request(app)
-      .post(`/jobs/runJobNow/${job._id}`)
-      .set("Authorization", auth(session.token));
+    const triggerResponse = await approveAndRunShellJob(session.token, job._id);
 
     expect(triggerResponse.status).toBe(200);
     expect(triggerResponse.body.runId).toEqual(expect.any(String));
@@ -337,8 +353,9 @@ describe("full job lifecycle e2e", () => {
     await modules.dagStateManager.setJobState(jobA._id, "FAILED");
 
     const triggerResponse = await request(app)
-      .post(`/jobs/runJobNow/${jobB._id}`)
-      .set("Authorization", auth(session.token));
+      .post(`/jobs/previewJobRun/${jobB._id}`)
+      .set("Authorization", auth(session.token))
+      .send({});
 
     expect(triggerResponse.status).toBe(409);
     expect(triggerResponse.body.code).toBe("SHELL_DEPENDENCIES_UNSUPPORTED");
@@ -357,9 +374,7 @@ describe("full job lifecycle e2e", () => {
     const job = await createShellJob(session.token, {
       targetAgentId: registered.agentId,
     });
-    const triggerResponse = await request(app)
-      .post(`/jobs/runJobNow/${job._id}`)
-      .set("Authorization", auth(session.token));
+    const triggerResponse = await approveAndRunShellJob(session.token, job._id);
     expect(triggerResponse.status).toBe(200);
 
     const resourceKey = `org:${String(job.orgId)}:agent:${registered.agentId}`;
@@ -383,9 +398,7 @@ describe("full job lifecycle e2e", () => {
     const job = await createShellJob(session.token, {
       targetAgentId: registered.agentId,
     });
-    const triggerResponse = await request(app)
-      .post(`/jobs/runJobNow/${job._id}`)
-      .set("Authorization", auth(session.token));
+    const triggerResponse = await approveAndRunShellJob(session.token, job._id);
     expect(triggerResponse.status).toBe(200);
 
     const originalOwner = {

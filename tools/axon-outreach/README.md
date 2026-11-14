@@ -33,7 +33,7 @@ python -m unittest discover -s tests -v
 The tracked tests use only synthetic organization data. The included zero-recipient input records the current research result without identifying or contacting anyone. A later human gate must authorize any separate contact-resolution or sender implementation.
 ## Policy-first agent pipeline
 
-The pipeline adds six versioned logical roles: research, qualification, use-case selection, drafting, adversarial critique, and verification. These roles may propose work, but deterministic gates control advancement. The current implementation consumes supplied evidence only and stops at `AWAITING_HUMAN_APPROVAL`; its capability flags deny network research, personal-contact resolution, approval, and sending.
+The pipeline adds six versioned logical roles: research, qualification, use-case selection, drafting, adversarial critique, and verification. Version 3 consumes supplied evidence only and holds every structurally passing candidate at `AWAITING_EVIDENCE_REVIEW`, with `SUPPLIED_UNVERIFIED` evidence and proposed scores. It emits no recipient or draft, including for strong synthetic evidence. All capability flags remain false; it cannot research the network, resolve contacts, approve, or send.
 
 Run the synthetic pipeline fixture:
 
@@ -41,7 +41,7 @@ Run the synthetic pipeline fixture:
 python -m axon_outreach.pipeline_cli synthetic-agent-pipeline.json
 ```
 
-The output is a checksum-addressed, write-once campaign review bundle. Pipeline input schema 2 requires every verified fact to carry a public HTTPS source URL, source type, publication and retrieval times, a verbatim excerpt, and SHA-256 digests of the excerpt and saved source text. The fact text must equal that excerpt; paraphrases belong under inference. A trigger is fresh only when its *publication* date is within 120 days. Every positive qualification component must have a matching verified fact type in the selected use case. The review bundle retains this provenance for inspection.
+The output is a checksum-addressed, write-once evidence-hold bundle. Input schema 2 still requires capture metadata and binds positive score components to supplied fact types in the selected use case. A trigger is fresh only when its *publication* date is within 120 days. Internal candidate drafts undergo the full manifest/privacy/claim/suppression preflight before being discarded; the outward manifest is always empty with pending approval. Inspect the separate source input for provenance: v3 does not retain recipient, draft, or provenance material in its hold bundle.
 
 A researcher can build capture metadata from a manually saved public page without giving the pipeline network access:
 
@@ -58,7 +58,7 @@ capture = capture_source(
 )
 ```
 
-This validates internal consistency, not whether the URL is genuinely first-party, the page was actually retrieved then, or the claim proves budget or intent. The reviewer must open the original public source, check the date and context, and judge the score before approving any recipient batch. SHA-256 makes accidental changes visible; it is not a signature or proof of external truth. Existing version-1 bundles remain verifiable, while new pipeline runs require schema 2.
+This validates internal consistency, not source authenticity, pain, budget, buying intent, or contact permission. There is no reviewer-field or token escape hatch in v3. A later authenticated, evidence-bound review contract is needed before recipient release. SHA-256 is not a review signature or proof of external truth. Existing v1/v2 bundles remain structurally verifiable and are not rewritten; their historical states do not grant qualification, approval, or sending authority. New runs use pipeline version 3 with input schema 2 and manifest schema 1.
 
 See `docs/outreach/axon-b2b-agent-contract-v1.md` for the role contracts, authority model, commercial method, and next slices.
 
@@ -74,4 +74,4 @@ python -m axon_outreach.discovery_cli first-client-discovery-2026-09-23.json
 
 The input contains three organizations: DailyDeploy, ixmops, and ANTOPS. The source captures are **excerpt-only manual transcriptions** from their public sites: `snapshot_sha256` hashes each supplied excerpt, not a saved full page. The code checks internal consistency, age, first-party domain and prohibited personal data. It does not independently fetch the site or prove the excerpt is current or in context. The packet therefore requires human source review and cannot enter the existing qualified pipeline. Its drafts are discovery questions, not send instructions. All capability flags remain false; there is no contact, approval or provider path.
 
-Before considering any contact, a reviewer must open each linked page and verify the exact wording, reject competitors/exclusions, assess jurisdiction and organization-level routing, then explicitly decide whether a small, separately approved discovery batch is appropriate. No buyer pain or buying intent has been established by these pages. The qualified 7/10 path remains unchanged.
+Before considering any contact, a reviewer must open each linked page and verify the exact wording, reject competitors/exclusions, assess jurisdiction and organization-level routing, then explicitly decide whether a small, separately approved discovery batch is appropriate. No buyer pain or buying intent has been established by these pages. The proposed 7/10 structural threshold remains; passing it does not release recipients or establish qualification.

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Axon — One workflow, a clear improvement plan</title>
+  <style>
+    :root { color-scheme: light; --paper:#f6f4ef; --ink:#202523; --muted:#535d58; --line:#d7dcd5; --accent:#16483d; --soft:#e8efe8; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    a { color:var(--accent); text-underline-offset:4px; }
+    a:focus-visible { outline:3px solid #255fc2; outline-offset:5px; }
+    .skip { position:absolute; top:-80px; left:20px; padding:12px; background:white; z-index:2; }
+    .skip:focus { top:12px; }
+    .wrap { max-width:1100px; margin:auto; padding:0 32px; }
+    header { display:flex; justify-content:space-between; gap:20px; align-items:center; padding:28px 0; border-bottom:1px solid var(--line); }
+    .brand { font-size:24px; letter-spacing:-1px; font-weight:750; }
+    .brand small { font-size:12px; font-weight:500; letter-spacing:1px; text-transform:uppercase; margin-left:14px; color:var(--muted); }
+    nav { display:flex; gap:24px; font-size:14px; }
+    .notice { margin-top:24px; border:1px solid #c9c8ad; background:#f0eedc; padding:14px 18px; font-size:14px; }
+    .notice strong { display:block; }
+    .hero { padding:60px 0 52px; max-width:860px; }
+    .eyebrow { color:var(--accent); font-size:12px; letter-spacing:1.8px; text-transform:uppercase; font-weight:750; }
+    h1 { font-size:clamp(38px,6vw,68px); line-height:1.07; letter-spacing:-2.8px; font-weight:650; margin:18px 0 24px; }
+    .lead { max-width:700px; font-size:20px; color:var(--muted); }
+    .pill { display:inline-block; padding:8px 14px; border:1px solid var(--line); border-radius:30px; font-size:13px; margin-top:14px; }
+    section { padding:40px 0; border-top:1px solid var(--line); scroll-margin-top:20px; }
+    .section-heading { display:grid; grid-template-columns:70px 1fr; align-items:start; gap:12px; margin-bottom:24px; }
+    .number { font-size:13px; color:var(--accent); padding-top:8px; }
+    h2 { font-size:30px; line-height:1.25; letter-spacing:-1px; margin:0 0 10px; font-weight:650; }
+    h3 { font-size:19px; line-height:1.35; margin:0 0 12px; }
+    p { margin:0 0 14px; }
+    .muted { color:var(--muted); }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:26px; }
+    .tag { color:var(--accent); font-size:11px; font-weight:750; letter-spacing:1.3px; text-transform:uppercase; margin-bottom:12px; }
+    ul,ol { padding-left:22px; margin:12px 0 0; }
+    li { padding-left:3px; margin:8px 0; }
+    .table-scroll { overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:white; }
+    table { width:100%; border-collapse:collapse; min-width:600px; text-align:left; font-size:14px; }
+    caption { text-align:left; padding:18px 20px; font-weight:650; font-size:16px; }
+    th { background:var(--soft); font-size:12px; letter-spacing:.4px; }
+    td,th { padding:16px 20px; vertical-align:top; border-top:1px solid var(--line); }
+    td:first-child { width:23%; font-weight:650; }
+    td:last-child { width:39%; }
+    .decision { background:var(--accent); color:white; padding:30px; border-radius:12px; margin-bottom:18px; }
+    .decision .tag { color:#c5e3d0; }
+    .decision p { color:#e0eae4; }
+    .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+    .steps .card { padding:22px; }
+    .measure { margin-top:20px; padding:20px 24px; background:var(--soft); border-radius:10px; }
+    .offer { display:grid; grid-template-columns:1fr 1.5fr; gap:32px; }
+    .price { font-size:44px; letter-spacing:-2px; line-height:1.2; margin:14px 0; }
+    .boundary { font-size:14px; color:var(--muted); margin-top:22px; }
+    .conversation { border-left:3px solid var(--accent); padding:5px 0 5px 22px; font-size:21px; max-width:780px; }
+    footer { padding:30px 0 44px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+    @media(max-width:700px) {
+      .wrap { padding:0 20px; }
+      header { align-items:flex-start; padding:22px 0; }
+      .brand small { display:block; margin:3px 0 0; font-size:10px; }
+      nav { flex-direction:column; gap:4px; }
+      .hero { padding:40px 0; }
+      h1 { letter-spacing:-1.5px; }
+      .lead { font-size:18px; }
+      .grid,.steps,.offer { grid-template-columns:1fr; }
+      .section-heading { grid-template-columns:32px 1fr; gap:8px; }
+      section { padding:32px 0; }
+      .card,.decision { padding:22px; }
+      .conversation { font-size:18px; }
+    }
+    @media print {
+      body { background:white; font-size:11pt; }
+      .wrap { max-width:none; padding:0; }
+      nav,.skip { display:none; }
+      .hero { padding:24px 0; }
+      h1 { font-size:34pt; }
+      .lead { font-size:13pt; }
+      section { padding:20px 0; }
+      h2 { font-size:20pt; }
+      .card,.decision,.measure { break-inside:avoid; }
+      .decision { background:white; color:var(--ink); border:2px solid var(--accent); }
+      .decision p,.decision .tag { color:var(--ink); }
+      .table-scroll { overflow:visible; }
+      table { min-width:0; font-size:10pt; }
+      td,th { padding:10px; }
+      a { color:var(--ink); }
+      footer { padding:15px 0; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to assessment</a>
+  <div class="wrap">
+    <header>
+      <div class="brand">Axon <small>Workflow assessment</small></div>
+      <nav aria-label="Page sections"><a href="#sample">The example</a><a href="#offer">The offer</a></nav>
+    </header>
+    <aside class="notice" aria-label="Example disclosure">
+      <strong>Fictional example assessment — no client engagement or execution performed.</strong>
+      This shows the format and reasoning you would receive. It is not evidence of a customer problem, a working live demo or achieved savings.
+    </aside>
+    <main id="main">
+      <div class="hero">
+        <div class="eyebrow">One recurring procedure. A practical decision.</div>
+        <h1>Does this check need<br>the original engineer?</h1>
+        <p class="lead">Review how your team completes one server procedure, what proves the result, and where handoffs get stuck. Get a clear next step—not another tool by default.</p>
+        <span class="pill">Manual review · Sanitized inputs · No server access required</span>
+      </div>
+
+      <section id="sample" aria-labelledby="sample-title">
+        <div class="section-heading"><span class="number">01 /</span><div><h2 id="sample-title">Start with one real example.</h2><p class="muted">In a paid assessment, your team's recent procedure replaces these fictional assumptions.</p></div></div>
+        <div class="grid">
+          <article class="card">
+            <div class="tag">Assumed inputs · fictional</div>
+            <h3>“Verify the staging release.”</h3>
+            <p>A support teammate needs to confirm which application version is running on one of two staging machines. A check script exists, but the procedure's author is asked which machine and output to use.</p>
+            <p>The teammate pastes a version into a ticket. This fictional ticket lacks a clear link between that version, the intended machine and the expected release.</p>
+          </article>
+          <article class="card">
+            <div class="tag">Evidence still needed · not findings</div>
+            <h3>Check the premise before recommending.</h3>
+            <ul>
+              <li>One sanitized recent ticket and the relevant runbook steps.</li>
+              <li>How CI already verifies the release and records its target.</li>
+              <li>How often the engineer actually helps, and why.</li>
+              <li>Who may perform the check and who owns improvements.</li>
+            </ul>
+            <p class="boundary">Frequency, interruption time, customer impact, buyer and budget are unknown. This sample establishes none of them.</p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="map-title">
+        <div class="section-heading"><span class="number">02 /</span><div><h2 id="map-title">Make uncertainty visible.</h2><p class="muted">Illustrative evidence and risk map. These are questions to test—not diagnosed defects in your team.</p></div></div>
+        <div class="table-scroll" role="region" aria-label="Illustrative evidence map, scroll horizontally on small screens" tabindex="0">
+          <table>
+            <caption>Staging release verification · fictional example</caption>
+            <thead><tr><th scope="col">Checkpoint</th><th scope="col">Illustrative concern</th><th scope="col">Evidence to inspect</th></tr></thead>
+            <tbody>
+              <tr><td>Correct destination</td><td>A correct version on the wrong staging machine would answer the wrong question.</td><td>Approved machine identifier and expected release in the ticket or CI record. Check whether these are already captured.</td></tr>
+              <tr><td>Permission to act</td><td>A shared script alone does not establish who is authorized to use it.</td><td>Existing access policy, permitted operator and runbook owner. Do not change access during this review.</td></tr>
+              <tr><td>Proof of completion</td><td>A pasted version may omit destination, time or failure information.</td><td>Existing CI result or sanitized check record, compared with the intended target and expected version.</td></tr>
+              <tr><td>Unclear outcome</td><td>Missing output does not establish success or failure.</td><td>Current escalation procedure and responsible engineer. Do not repeat uncertain work blindly or assume it is safe.</td></tr>
+              <tr><td>Actual burden</td><td>The handoff may be infrequent or already solved; a new tool may add work.</td><td>Recent examples, frequency and active operator/engineer time. No savings estimate without this baseline.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-labelledby="recommendation-title">
+        <div class="section-heading"><span class="number">03 /</span><div><h2 id="recommendation-title">Choose the smallest useful change.</h2><p class="muted">Example one-page recommendation, conditional on the assumed handoff gap being confirmed.</p></div></div>
+        <div class="decision">
+          <div class="tag">Illustrative decision</div>
+          <h3>Improve the existing runbook or CI record first.</h3>
+          <p>Put the intended staging machine, expected release, approved check, result link and escalation owner in one place. If CI already provides this clearly, point the teammate there and keep the current system.</p>
+          <p>No Axon installation is recommended by this fictional assessment.</p>
+        </div>
+        <div class="steps">
+          <article class="card"><div class="tag">Owner · procedure engineer</div><h3>Clarify the procedure.</h3><p>Document how to identify the exact destination, interpret the result and stop/escalate if the answer is unclear.</p></article>
+          <article class="card"><div class="tag">Check · authorized teammate</div><h3>Test the handoff.</h3><p>Have another permitted teammate explain the procedure from the revised instructions. Any actual execution requires its own approval and safe scope.</p></article>
+          <article class="card"><div class="tag">Decision · workflow owner</div><h3>Look for a remaining gap.</h3><p>If recurring engineer dependency persists despite existing tools, investigate why. Consider a separately scoped evaluation only when that gap is demonstrated.</p></article>
+        </div>
+        <div class="measure"><strong>How to judge the improvement:</strong> compare active coordination time and whether the record answers “which machine, which release, what result?” on agreed comparable examples. Set the baseline and success criterion with your team; no reduction is promised.</div>
+      </section>
+
+      <section id="offer" aria-labelledby="offer-title">
+        <div class="offer">
+          <div><div class="eyebrow">Proposed offer · price unvalidated</div><h2 id="offer-title" style="margin-top:12px">Automation Reliability Assessment</h2><div class="price">₹10,000</div><p class="muted">For one procedure with a concrete, unresolved problem. First, a free fit conversation.</p></div>
+          <div class="card"><h3>Three concrete deliverables</h3><ol><li>A 60-minute review of one recent procedure using sanitized material.</li><li>An evidence and risk map separating confirmed facts, uncertainty and handoff responsibilities.</li><li>A one-page recommendation: keep your approach, improve it, or investigate a separately scoped implementation—with owner, next action and a way to assess it.</li></ol><p class="boundary">Advisory only. No installation, production changes, credentials, remote execution, subscription, required demonstration, ongoing support or guaranteed savings.</p></div>
+        </div>
+        <p class="boundary">Before payment: Yash must confirm delivery ability and availability. Agree in writing on the procedure, safe inputs, deliverables, delivery date, total fee and payment terms. If safe inputs are insufficient, narrow or decline the work before charging.</p>
+      </section>
+
+      <section aria-labelledby="axon-title">
+        <div class="section-heading"><span class="number">04 /</span><div><h2 id="axon-title">Where Axon could fit.</h2><p class="muted">The assessment stands on its own. Buying software is not the default recommendation.</p></div></div>
+        <p>Axon's design intent is to let an authorized teammate request an explicitly approved operation on one exact machine, then review a saved result. That may be worth evaluating when a recurring delegation gap remains after improving existing tools.</p>
+        <p><strong>Customer deployment acceptance is incomplete.</strong> An interface introduction is not proof of safe customer execution. Any pilot needs separate technical acceptance and a separate agreement; this page is not a live demo.</p>
+      </section>
+
+      <section aria-labelledby="conversation-title">
+        <div class="eyebrow">Start with the problem, not payment</div>
+        <h2 id="conversation-title" style="margin:14px 0 22px">Is there a recent example worth reviewing?</h2>
+        <p class="conversation">“What was the last server procedure that needed its original engineer even though a script or runbook existed? What do your current tools already solve, and what remains unresolved?”</p>
+        <p class="boundary">If there is no meaningful unresolved burden, do not buy a review just to see Axon. Discuss only material you are authorized to share; no passwords, customer records or confidential logs.</p>
+      </section>
+    </main>
+    <footer>Prepared 7 October 2026 · Local example, not published or sent · No booking, payment or contact collection on this page.</footer>
+  </div>
+</body>
+</html>

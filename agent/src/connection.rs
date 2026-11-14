@@ -1,4 +1,7 @@
-use crate::execution::{execute_command, CommandPayload, CommandResult, ExecutionOutcome};
+use crate::execution::{
+    execute_command, generate_quiescence_certificate, CommandPayload, CommandResult,
+    ExecutionOutcome,
+};
 use crate::journal::{AttemptDescriptor, AttemptJournal, JournalError, ReceiveDecision};
 use crate::sandbox::SandboxMode;
 use crate::telemetry::collect_telemetry;
@@ -349,6 +352,35 @@ impl AgentConnection {
         }
 
         if let Some((event_name, payload)) = parse_socketio_event(text) {
+            if event_name == "query_quiescence" {
+                let attempt_id = payload
+                    .get("attemptId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let generation = payload
+                    .get("connectionGeneration")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+
+                let is_terminal = self
+                    .journal
+                    .is_attempt_terminal_and_quiescent(attempt_id)
+                    .unwrap_or(false);
+
+                if let Some(cert) = generate_quiescence_certificate(
+                    &self.agent_id,
+                    attempt_id,
+                    is_terminal,
+                    generation,
+                ) {
+                    if let Ok(val) = serde_json::to_value(cert) {
+                        let packet = socketio_event_packet("quiescence_certificate", val);
+                        send_text(writer, packet).await?;
+                    }
+                }
+                return Ok(());
+            }
+
             if event_name == "execute_command" {
                 let dispatch: DispatchPayload = serde_json::from_value(payload)
                     .map_err(|err| AgentError::Protocol(err.to_string()))?;

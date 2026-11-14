@@ -71,3 +71,10 @@ const jobFields = {
 
 export const createJobSchema = z.object(jobFields);
 export const updateJobSchema = z.object(jobFields).partial();
+
+export const previewRunSchema = z.object({}).strict();
+
+export const approvedRunSchema = z.object({
+  previewId: z.string().uuid(),
+  previewHash: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();

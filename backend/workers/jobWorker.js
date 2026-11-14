@@ -3,6 +3,7 @@ import { redisConnection } from "../config/queue.js";
 import jobHistoryModel from "../models/jobHistory.js";
 import Agent from "../models/agent.js";
 import JobModel from "../models/job.js";
+import JobRun from "../models/jobRun.js";
 import User from "../models/user.js";
 import axios from "axios";
 import mongoose from "mongoose";
@@ -12,6 +13,7 @@ import { releaseJobLock } from "../services/distributedLock.js";
 import {
   acquireExecutionTargetHold,
   releaseExecutionTargetHold,
+  releaseProofAuthorizedExecutionTargetHold,
 } from "../services/executionTargetHoldService.js";
 import {
   acquireExecutionSlot,
@@ -28,6 +30,7 @@ import {
 } from "../services/jobExecutionRouter.js";
 import {
   claimRunForDispatch,
+  confirmRunCompletion,
   completeRun,
   markRunUnknown,
   markRunAcknowledged,
@@ -37,6 +40,7 @@ import { sendJobNotification } from "../services/notificationService.js";
 import { isWithinExecutionWindow } from "../utils/executionWindow.js";
 import { hasResourceAccess } from "../middlewares/jwt.js";
 import { getExecutionPolicyViolation } from "../services/executionPolicy.js";
+import { validateApprovalForDispatch } from "../services/jobRunPreviewService.js";
 import {
   buildExecutionResourceKey,
   calculateExecutionLockTtlSeconds,
@@ -179,8 +183,8 @@ export const jobProcessor = async (job) => {
     dependsOn,
     triggeredBy,
     triggerType,
-    notifications,
-    jobName,
+    notifications: queuedNotifications,
+    jobName: queuedJobName,
     executionWindow,
     timezone,
     timeout,
@@ -197,6 +201,7 @@ export const jobProcessor = async (job) => {
     startBefore,
     maxOutputBytes,
   } = job.data;
+  const isProtocolV2Shell = Boolean(payload?.command && protocolVersion === 2);
 
   const policyViolation = getExecutionPolicyViolation({
     type: payload?.url ? "http" : payload?.command ? "shell" : undefined,
@@ -225,6 +230,8 @@ export const jobProcessor = async (job) => {
   let executionOutcome = null;
   let runCompleted = false;
   let durableHoldOwner = null;
+  let trustedNotifications = payload?.command ? null : queuedNotifications;
+  let trustedJobName = payload?.command ? null : queuedJobName;
   const startTime = Date.now();
   const workerId = `${job.queueName}:${job.id}`;
   const executionResourceKey = buildExecutionResourceKey({ orgId, targetAgentId, jobId });
@@ -342,8 +349,10 @@ export const jobProcessor = async (job) => {
       return { status: "skipped", jobId, reason: "outside-execution-window" };
     }
 
-    await setJobState(jobId, "RUNNING");
-    await safeUpdateAuditRecord(auditId, { status: "DISPATCHED" }, jobLogger);
+    if (!isProtocolV2Shell) {
+      await setJobState(jobId, "RUNNING");
+      await safeUpdateAuditRecord(auditId, { status: "DISPATCHED" }, jobLogger);
+    }
 
     try {
     if (dependsOn && dependsOn.length > 0) {
@@ -454,6 +463,21 @@ export const jobProcessor = async (job) => {
 
       const dispatchClaim = await claimRunForDispatch(job.data);
       if (!dispatchClaim.claimed) {
+        try {
+          const proofAuthorizedRelease = await releaseProofAuthorizedExecutionTargetHold({
+            owner: proposedHoldOwner,
+            proofId: dispatchClaim.run?.nonDispatchProof?.proofId,
+            resolutionId: dispatchClaim.run?.operatorResolution?.resolutionId,
+          });
+          if (proofAuthorizedRelease.authorized) {
+            durableHoldOwner = null;
+          }
+        } catch (cleanupError) {
+          jobLogger.warn(
+            { err: cleanupError, runId, attemptId },
+            "Could not verify proof-authorized stale-worker hold cleanup",
+          );
+        }
         const terminalOutcome = dispatchClaim.run?.terminalSummary?.outcome;
         if (CONCLUSIVE_EXECUTION_OUTCOMES.has(terminalOutcome)) {
           executionOutcome = terminalOutcome;
@@ -476,6 +500,9 @@ export const jobProcessor = async (job) => {
           duplicateDelivery: true,
         };
       }
+
+      await setJobState(jobId, "RUNNING");
+      await safeUpdateAuditRecord(auditId, { status: "DISPATCHED" }, jobLogger);
 
       if (Date.now() > startBefore) {
         reasonCode = "START_DEADLINE_EXPIRED";
@@ -565,6 +592,22 @@ export const jobProcessor = async (job) => {
         throw policyError;
       }
 
+      const durableRun = await JobRun.findOne({
+        runId,
+        orgId,
+        jobId,
+        targetAgentId,
+      });
+      const savedApproval = await validateApprovalForDispatch({
+        run: durableRun,
+        queueData: job.data,
+        currentUser,
+        currentJob,
+        currentAgent: agent,
+      });
+      trustedNotifications = savedApproval.preview.notifications;
+      trustedJobName = savedApproval.preview.jobName;
+
       const envelope = {
         protocolVersion,
         orgId: String(orgId),
@@ -646,19 +689,37 @@ export const jobProcessor = async (job) => {
               : classification.status === "CANCELLED"
                 ? "cancelled"
                 : "failure";
+      let terminalConfirmation;
       try {
-        await completeRun(runId, attemptId, {
+        terminalConfirmation = await confirmRunCompletion(runId, attemptId, {
           ...classification,
           exitCode: agentResponse.exitCode,
         });
-        runCompleted = true;
       } catch (terminalPersistenceError) {
-        runCompleted = true;
+        terminalConfirmation = {
+          disposition: "PERSISTENCE_UNKNOWN",
+          error: terminalPersistenceError,
+        };
+      }
+      runCompleted = true;
+      if (terminalConfirmation.disposition !== "CONFIRMED_MATCH") {
+        const isConflict = terminalConfirmation.disposition === "CONFLICT";
+        output = undefined;
+        status = "unknown";
+        executionOutcome = "UNKNOWN";
         const persistenceError = new Error(
-          "Axon received a correlated execution result but could not persist the terminal run state",
+          isConflict
+            ? "Axon received a correlated execution result that conflicts with the durable terminal receipt"
+            : "Axon received a correlated execution result but could not confirm the durable terminal run state",
         );
-        persistenceError.code = "EXECUTION_RESULT_PERSISTENCE_UNKNOWN";
-        persistenceError.cause = terminalPersistenceError;
+        persistenceError.code = isConflict
+          ? "EXECUTION_RESULT_PERSISTENCE_CONFLICT"
+          : "EXECUTION_RESULT_PERSISTENCE_UNKNOWN";
+        persistenceError.confirmationDisposition = terminalConfirmation.disposition;
+        persistenceError.persistedRunStatus = terminalConfirmation.run?.status ?? null;
+        if (terminalConfirmation.error) {
+          persistenceError.cause = terminalConfirmation.error;
+        }
         throw persistenceError;
       }
       try {
@@ -703,6 +764,7 @@ export const jobProcessor = async (job) => {
       "EXECUTION_OUTCOME_UNKNOWN",
       "EXECUTION_RESULT_UNKNOWN",
       "EXECUTION_STATE_PERSISTENCE_UNKNOWN",
+      "EXECUTION_RESULT_PERSISTENCE_CONFLICT",
       "EXECUTION_RESULT_PERSISTENCE_UNKNOWN",
       "EXECUTION_TARGET_HOLD_UNKNOWN",
     ]);
@@ -801,17 +863,17 @@ export const jobProcessor = async (job) => {
       }
     }
 
-    if (notifications?.recipients?.length > 0) {
+    if (trustedNotifications?.recipients?.length > 0) {
       const shouldNotify = status === "success"
-        ? notifications.onSuccess
-        : notifications.onFailure;
+        ? trustedNotifications.onSuccess
+        : trustedNotifications.onFailure;
       if (shouldNotify) {
         await sendJobNotification({
-          jobName:   jobName ?? String(jobId),
+          jobName:   trustedJobName ?? String(jobId),
           jobId:     String(jobId),
           status,
           durationMs: duration,
-          recipients: notifications.recipients,
+          recipients: trustedNotifications.recipients,
         });
       }
     }
@@ -859,27 +921,25 @@ export const jobProcessor = async (job) => {
   }
 };
 
-const shouldStartWorkers = process.env.NODE_ENV !== "test";
+export let scheduledWorker = null;
+export let immediateWorker = null;
 
-export const scheduledWorker = shouldStartWorkers
-  ? new Worker("scheduled-jobs", jobProcessor, {
-      connection: redisConnection,
-      concurrency: 5,
-      stalledInterval: 30_000,
-      maxStalledCount: 1,
-    })
-  : null;
-
-export const immediateWorker = shouldStartWorkers
-  ? new Worker("immediate-jobs", jobProcessor, {
-      connection: redisConnection,
-      concurrency: 5,
-      stalledInterval: 30_000,
-      maxStalledCount: 1,
-    })
-  : null;
-
-if (scheduledWorker && immediateWorker) {
+export function startJobWorkers() {
+  if (scheduledWorker || immediateWorker) {
+    return { scheduledWorker, immediateWorker };
+  }
+  scheduledWorker = new Worker("scheduled-jobs", jobProcessor, {
+    connection: redisConnection,
+    concurrency: 5,
+    stalledInterval: 30_000,
+    maxStalledCount: 1,
+  });
+  immediateWorker = new Worker("immediate-jobs", jobProcessor, {
+    connection: redisConnection,
+    concurrency: 5,
+    stalledInterval: 30_000,
+    maxStalledCount: 1,
+  });
   scheduledWorker.on("failed", (job, err) => {
     logger.error({ err, bullJobId: job?.id, queueName: "scheduled-jobs" }, "Scheduled job failed");
   });
@@ -889,4 +949,5 @@ if (scheduledWorker && immediateWorker) {
   });
 
   logger.info({ queues: ["scheduled-jobs", "immediate-jobs"] }, "Axon workers started");
+  return { scheduledWorker, immediateWorker };
 }

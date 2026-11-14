@@ -14,8 +14,11 @@ sys.path.insert(0, str(TESTS))
 
 from axon_outreach.manifest import ManifestError, build_manifest, verify_manifest
 from test_manifest import qualified_input
-from axon_outreach.pipeline import build_campaign_bundle
-from test_pipeline import qualified_pipeline_input
+
+
+def historical_pipeline_manifest() -> dict:
+    """Keep legacy nonempty-manifest tamper coverage after v3 holds recipients."""
+    return json.loads((TESTS / "fixtures" / "historical-v2.pipeline.json").read_text())["manifest"]
 
 
 def rehash(manifest: dict) -> None:
@@ -69,7 +72,7 @@ class SecurityBoundaryTests(unittest.TestCase):
 
 
     def test_manifest_rejects_tampered_pipeline_capability_with_recomputed_checksum(self) -> None:
-        manifest = build_campaign_bundle(qualified_pipeline_input())["manifest"]
+        manifest = historical_pipeline_manifest()
         manifest["items"][0]["capability_claims"] = [
             "Axon guarantees unattended production execution."
         ]
@@ -77,13 +80,13 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertFalse(verify_manifest(manifest))
 
     def test_manifest_rejects_incomplete_pipeline_fields_with_recomputed_checksum(self) -> None:
-        manifest = build_campaign_bundle(qualified_pipeline_input())["manifest"]
+        manifest = historical_pipeline_manifest()
         manifest["items"][0].pop("message_quality")
         rehash(manifest)
         self.assertFalse(verify_manifest(manifest))
 
     def test_rehashed_provenance_cannot_inflate_qualification(self) -> None:
-        manifest = build_campaign_bundle(qualified_pipeline_input())["manifest"]
+        manifest = historical_pipeline_manifest()
         provenance = manifest["items"][0]["research_provenance"]
         next(entry for entry in provenance if entry["fact_type"] == "observed_pain")[
             "fact_type"
@@ -92,7 +95,7 @@ class SecurityBoundaryTests(unittest.TestCase):
         self.assertFalse(verify_manifest(manifest))
 
     def test_rehashed_provenance_cannot_detach_fact_from_excerpt(self) -> None:
-        manifest = build_campaign_bundle(qualified_pipeline_input())["manifest"]
+        manifest = historical_pipeline_manifest()
         manifest["items"][0]["research_provenance"][0]["fact_text"] = "Unrelated buying claim"
         rehash(manifest)
         self.assertFalse(verify_manifest(manifest))

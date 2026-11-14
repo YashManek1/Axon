@@ -10,6 +10,7 @@ let mongoServer;
 
 process.env.NODE_ENV = "test";
 process.env.AXON_EXECUTION_PROFILE = "legacy";
+process.env.AXON_RELEASE_ID = "test-release";
 process.env.LOG_LEVEL = "info";
 process.env.JWT_SECRET = "test-secret-do-not-use-in-production";
 // Reserve Redis database 15 for tests so queue/state cleanup cannot touch the

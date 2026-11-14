@@ -1,13 +1,15 @@
+import { randomUUID } from "crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import Agent from "../models/agent.js";
 import Job from "../models/job.js";
 import JobRun from "../models/jobRun.js";
 import Organization from "../models/organization.js";
 import User from "../models/user.js";
+import { createJobRunPreview } from "../services/jobRunPreviewService.js";
 import {
   buildQueueData,
   claimRunForDispatch,
-  createManualShellRun,
+  createApprovedShellRun,
   markRunAcknowledged,
   markRunQueued,
   recoverStaleManualRuns,
@@ -77,14 +79,25 @@ beforeEach(async () => {
 });
 
 async function staleRun(status = "ACCEPTED") {
-  const created = await createManualShellRun({
-    job,
+  const now = Date.now();
+  const preview = await createJobRunPreview({
+    orgId: org._id,
+    actorId: user._id,
+    jobId: job._id,
+    now,
+  });
+  const created = await createApprovedShellRun({
     orgId: org._id,
     userId: user._id,
+    jobId: job._id,
+    requestKey: randomUUID(),
+    previewId: preview.previewId,
+    previewHash: preview.previewHash,
     ipAddress: "127.0.0.1",
     userAgent: "test",
+    now: now + 1_000,
   });
-  const queueData = buildQueueData(created.run, job, created.agent);
+  const queueData = buildQueueData(created.run);
   if (["QUEUED", "DISPATCHING", "ACKNOWLEDGED"].includes(status)) {
     await markRunQueued(created.run.runId);
   }

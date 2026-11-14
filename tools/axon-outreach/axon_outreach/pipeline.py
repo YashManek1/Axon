@@ -2,7 +2,7 @@
 
 The named agents are bounded roles. They never gain transport, network, mailbox,
 credential, scheduling, approval, or send capabilities. Deterministic code makes
-all release decisions and stops at human review.
+structural decisions and holds every passing candidate for independent evidence review.
 """
 
 from __future__ import annotations
@@ -20,7 +20,10 @@ from .source_capture import validate_capture
 from .validation import ValidationError, exact_mapping, public_https_url, safe_text, timestamp
 
 
-PIPELINE_VERSION = 2
+PIPELINE_VERSION = 3
+EVIDENCE_HOLD_REASON = (
+    "No qualified recipients; structurally passing candidates require independent evidence review."
+)
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 MAX_TRIGGER_AGE = timedelta(days=120)
 MAX_PLANNING_HORIZON = timedelta(days=30)
@@ -112,7 +115,7 @@ def _spec(name: str, role: str, purpose: str, task: str, output: str) -> AgentSp
     )
 
 
-AGENT_SPECS = {
+LEGACY_AGENT_SPECS = {
     "research": _spec(
         "research", "B2B research analyst",
         "Separate supplied public facts from explicit hypotheses.",
@@ -149,6 +152,34 @@ AGENT_SPECS = {
         "Bind claims to sources and build the dry-run manifest item.",
         "A validated item that can only await human approval.",
     ),
+}
+
+
+AGENT_SPECS = {
+    "research": _spec("research", "B2B research analyst",
+        "Check internal consistency of supplied, externally unverified evidence.",
+        "Validate supplied capture bindings and publication freshness, not source authenticity.",
+        "Structurally checked supplied evidence; external truth remains unverified."),
+    "qualification": _spec("qualification", "commercial qualification analyst",
+        "Check a proposed rubric without asserting buyer truth or purchase intent.",
+        "Recompute caller-proposed scores and check supplied fact-type bindings.",
+        "A structurally passing proposed score, not validated commercial confidence."),
+    "use_case": _spec("use_case", "solution consultant",
+        "Check a supplied use-case proposal against the capability ledger.",
+        "Check role, support identifiers and proposed fit; do not establish permission.",
+        "A structurally selected proposal whose fit remains unverified."),
+    "draft": _spec("draft", "enterprise copywriter",
+        "Exercise draft safety checks without releasing a draft.",
+        "Construct an ephemeral candidate for privacy and claim preflight only.",
+        "An internal candidate discarded before bundle publication."),
+    "critic": _spec("critic", "outreach quality reviewer",
+        "Check deterministic message constraints, not semantic evidence truth.",
+        "Check the ephemeral candidate's length, capability, CTA and opt-out constraints.",
+        "Internal safety findings, not authenticated evidence review."),
+    "verification": _spec("verification", "campaign release controller",
+        "Block release until independent evidence review has a separate trusted contract.",
+        "Run full manifest safety preflight then discard recipients and drafts.",
+        "An AWAITING_EVIDENCE_REVIEW hold and an empty pending manifest."),
 }
 
 
@@ -494,13 +525,15 @@ class OutreachPipeline:
                 draft = drafting.run(account, selected)
                 critique = critic.run(account, selected, draft)
                 item = verification.run(account, score, selected, draft, critique)
-                items.append(item)
+                items.append(item)  # Ephemeral: full safety preflight still runs below.
                 decisions.append({
                     "account_id": account["account_id"],
-                    "state": "AWAITING_HUMAN_APPROVAL",
-                    "reason_code": "QUALIFIED_REVIEW_ONLY",
+                    "state": "AWAITING_EVIDENCE_REVIEW",
+                    "reason_code": "SEMANTIC_REVIEW_REQUIRED",
                     "use_case_id": selected["use_case_id"],
-                    "use_case_fit": selected["fit_score"],
+                    "proposed_score": copy.deepcopy(score),
+                    "proposed_use_case_fit": selected["fit_score"],
+                    "evidence_status": "SUPPLIED_UNVERIFIED",
                 })
             except PipelineError as exc:
                 decisions.append({
@@ -523,6 +556,10 @@ class OutreachPipeline:
                 "No account passed deterministic qualification and safety checks."
             )
         try:
+            # Preserve whole-batch safety failure semantics. Never publish this candidate.
+            build_manifest(manifest_source)
+            manifest_source["items"] = []
+            manifest_source["zero_recipient_reason"] = EVIDENCE_HOLD_REASON
             manifest = build_manifest(manifest_source)
         except ManifestError as exc:
             raise PipelineError("MANIFEST_REJECTED", str(exc)) from exc
@@ -553,7 +590,37 @@ def build_campaign_bundle(
     return OutreachPipeline(clock=lambda: now).run(source)
 
 
+def _valid_hold_decision(decision: Any) -> bool:
+    if not isinstance(decision, Mapping):
+        return False
+    _text(decision.get("account_id"), "decision.account_id")
+    state = decision.get("state")
+    if state in {"REJECTED", "SUPPRESSED"}:
+        if set(decision) != {"account_id", "state", "reason_code"}:
+            return False
+        reason = _text(decision["reason_code"], "decision.reason_code")
+        return (reason == "SUPPRESSED" if state == "SUPPRESSED" else
+                reason not in {"QUALIFIED_REVIEW_ONLY", "SEMANTIC_REVIEW_REQUIRED", "SUPPRESSED"})
+    if set(decision) != {"account_id", "state", "reason_code", "use_case_id",
+                         "proposed_score", "proposed_use_case_fit", "evidence_status"}:
+        return False
+    if (state != "AWAITING_EVIDENCE_REVIEW"
+            or decision["reason_code"] != "SEMANTIC_REVIEW_REQUIRED"
+            or decision["evidence_status"] != "SUPPLIED_UNVERIFIED"):
+        return False
+    _text(decision["use_case_id"], "decision.use_case_id")
+    fit = decision["proposed_use_case_fit"]
+    score = _exact(decision["proposed_score"], {"rubric_version", "components", "total"}, "proposed_score")
+    components = _exact(score["components"], SCORE_KEYS, "proposed_score.components")
+    return (type(fit) is int and 7 <= fit <= 10
+            and score["rubric_version"] == "2026-09-12"
+            and all(type(value) is int and 0 <= value <= 2 for value in components.values())
+            and type(score["total"]) is int and 7 <= score["total"] <= 10
+            and score["total"] == sum(components.values()))
+
+
 def verify_bundle(bundle: Mapping[str, Any]) -> bool:
+    """Verify structural integrity, never source authenticity or human approval."""
     try:
         candidate = copy.deepcopy(dict(bundle))
         recorded = candidate.pop("bundle_sha256", None)
@@ -565,15 +632,17 @@ def verify_bundle(bundle: Mapping[str, Any]) -> bool:
             "capabilities", "decisions", "manifest",
         }:
             return False
-        if candidate["pipeline_version"] not in {1, PIPELINE_VERSION}:
+        version = candidate["pipeline_version"]
+        if type(version) is not int or version not in {1, 2, 3}:
             return False
-        if candidate["pipeline_version"] == PIPELINE_VERSION and any(
+        if version == 2 and any(
             "research_provenance" not in item for item in candidate["manifest"]["items"]
         ):
             return False
-        if candidate["agents"] != list(AGENT_SPECS):
+        specs = AGENT_SPECS if version == 3 else LEGACY_AGENT_SPECS
+        if candidate["agents"] != list(specs):
             return False
-        if candidate["agent_contracts"] != [json.loads(json.dumps(asdict(spec))) for spec in AGENT_SPECS.values()]:
+        if candidate["agent_contracts"] != [json.loads(json.dumps(asdict(spec))) for spec in specs.values()]:
             return False
         if candidate["capability_ledger_version"] != CAPABILITY_LEDGER_VERSION:
             return False
@@ -581,6 +650,19 @@ def verify_bundle(bundle: Mapping[str, Any]) -> bool:
             return False
         if not verify_manifest(candidate["manifest"]):
             return False
+        if version == 3:
+            manifest = candidate["manifest"]
+            if (candidate["profile"] != "axon_b2b" or candidate["mode"] != "dry_run"
+                    or any(value is not False for value in candidate["capabilities"].values())
+                    or any(value is not False for value in manifest["capabilities"].values())
+                    or any(candidate[key] != manifest[key] for key in
+                           ("profile", "mode", "batch_id", "prepared_at"))
+                    or manifest["items"] != []
+                    or manifest["approval"] != APPROVAL
+                    or manifest["zero_recipient_reason"] != EVIDENCE_HOLD_REASON):
+                return False
+            return (isinstance(candidate["decisions"], list)
+                    and all(_valid_hold_decision(decision) for decision in candidate["decisions"]))
         approved_ids = {
             item["account_id"] for item in candidate["manifest"]["items"]
         }

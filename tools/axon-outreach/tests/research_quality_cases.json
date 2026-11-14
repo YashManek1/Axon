@@ -1,0 +1,90 @@
+[
+  {
+    "id": "fresh_control",
+    "edit": "none",
+    "label": "review_candidate_not_contact_authorization",
+    "enforceable": true,
+    "reason": "SEMANTIC_REVIEW_REQUIRED",
+    "rationale": "Specific synthetic statements pass structural checks but remain held pending independent evidence review."
+  },
+  {
+    "id": "old_publication_recent_retrieval",
+    "edit": "age_121",
+    "label": "reject",
+    "enforceable": true,
+    "reason": "STALE_RESEARCH",
+    "rationale": "Recent retrieval does not refresh publication older than 120 days."
+  },
+  {
+    "id": "unknown_publication_recent_retrieval",
+    "edit": "undated",
+    "label": "reject",
+    "enforceable": true,
+    "reason": "STALE_RESEARCH",
+    "rationale": "An undated page is not a fresh published trigger."
+  },
+  {
+    "id": "publication_after_retrieval",
+    "edit": "future_publication",
+    "label": "reject",
+    "enforceable": true,
+    "reason": "SOURCE_CAPTURE_REJECTED",
+    "rationale": "A capture cannot have retrieved a later publication."
+  },
+  {
+    "id": "publication_exact_120_days",
+    "edit": "age_120",
+    "label": "review_candidate_not_contact_authorization",
+    "enforceable": true,
+    "reason": "SEMANTIC_REVIEW_REQUIRED",
+    "rationale": "The configured freshness interval includes its exact boundary."
+  },
+  {
+    "id": "pain_is_only_service_offering",
+    "edit": "wrong_type",
+    "label": "reject",
+    "enforceable": true,
+    "reason": "UNSUPPORTED_SCORE",
+    "rationale": "Service offerings do not satisfy an observed-pain score component."
+  },
+  {
+    "id": "missing_pain_type",
+    "edit": "missing_type",
+    "label": "reject",
+    "enforceable": true,
+    "reason": "MANIFEST_REJECTED",
+    "rationale": "A verified fact must declare an allowed type."
+  },
+  {
+    "id": "buyer_excluded_from_use_case",
+    "edit": "unselected_buyer",
+    "label": "reject",
+    "enforceable": true,
+    "reason": "UNSUPPORTED_SCORE",
+    "rationale": "Scored buyer evidence must support the selected use case."
+  },
+  {
+    "id": "vague_correctly_typed_pain",
+    "edit": "vague_pain",
+    "label": "insufficient_human_evidence",
+    "enforceable": false,
+    "reason": "SEMANTIC_REVIEW_REQUIRED",
+    "rationale": "A generic reliability aspiration does not show the organization's measured operational pain."
+  },
+  {
+    "id": "weak_correctly_typed_buyer",
+    "edit": "weak_buyer",
+    "label": "insufficient_human_evidence",
+    "enforceable": false,
+    "reason": "SEMANTIC_REVIEW_REQUIRED",
+    "rationale": "An unnamed team says nothing about purchase authority, budget or permitted access."
+  },
+  {
+    "id": "vague_correctly_typed_assessment",
+    "edit": "vague_assessment",
+    "label": "insufficient_human_evidence",
+    "enforceable": false,
+    "reason": "SEMANTIC_REVIEW_REQUIRED",
+    "rationale": "Advertising assessment services is not permission to assess this organization's own safe target."
+  }
+]

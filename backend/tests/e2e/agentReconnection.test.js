@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { EventEmitter } from "events";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +16,7 @@ class MockSocket extends EventEmitter {
     this.clientType = "agent";
     this.authGeneration = 0;
     this.protocolVersions = [2];
+    this.releaseId = process.env.AXON_RELEASE_ID;
   }
 
   emit(eventName, payload) {
@@ -57,6 +59,7 @@ beforeAll(async () => {
     { default: User },
     { default: JobRun },
     jobRuns,
+    jobRunPreviews,
     agentLifecycle,
   ] = await Promise.all([
     import("../../workers/jobWorker.js"),
@@ -69,6 +72,7 @@ beforeAll(async () => {
     import("../../models/user.js"),
     import("../../models/jobRun.js"),
     import("../../services/jobRunService.js"),
+    import("../../services/jobRunPreviewService.js"),
     import("../../services/agentConnectionLifecycle.js"),
   ]);
 
@@ -83,6 +87,7 @@ beforeAll(async () => {
     User,
     JobRun,
     jobRuns,
+    jobRunPreviews,
     agentLifecycle,
   };
 });
@@ -145,16 +150,23 @@ describe("agent reconnection e2e", () => {
       sockets: { sockets: new Map([["reconnect-socket", socket]]) },
     });
 
-    const created = await modules.jobRuns.createManualShellRun({
-      job,
+    const preview = await modules.jobRunPreviews.createJobRunPreview({
+      orgId: org._id,
+      actorId: user._id,
+      jobId: job._id,
+    });
+    const created = await modules.jobRuns.createApprovedShellRun({
       orgId: org._id,
       userId: user._id,
-      requestKey: "reconnect-run",
+      jobId: job._id,
+      requestKey: randomUUID(),
+      previewId: preview.previewId,
+      previewHash: preview.previewHash,
       ipAddress: "127.0.0.1",
       userAgent: "vitest",
     });
     await modules.jobRuns.markRunQueued(created.run.runId);
-    const queueData = modules.jobRuns.buildQueueData(created.run, job, created.agent);
+    const queueData = modules.jobRuns.buildQueueData(created.run);
 
     const processorPromise = modules.worker.jobProcessor({
       id: queueData.attemptId,

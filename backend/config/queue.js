@@ -63,13 +63,17 @@ const immediateJobsQueue = new Queue("immediate-jobs", {
 
 // Periodic queue depth collector: updates metrics every 15 seconds.
 // Wraps in try/catch and timeout to prevent Redis hiccups from crashing.
+let queueDepthInterval = null;
+let recoveryInterval = null;
+
 function startQueueDepthCollector() {
+  if (queueDepthInterval) return queueDepthInterval;
   const queues = [
     { instance: scheduledJobsQueue, name: "scheduled-jobs" },
     { instance: immediateJobsQueue, name: "immediate-jobs" },
   ];
 
-  const interval = setInterval(async () => {
+  queueDepthInterval = setInterval(async () => {
     for (const { instance, name } of queues) {
       try {
         const controller = new AbortController();
@@ -95,7 +99,8 @@ function startQueueDepthCollector() {
   }, 15000);
 
   // Unref so this interval does not keep the process alive on shutdown.
-  interval.unref();
+  queueDepthInterval.unref();
+  return queueDepthInterval;
 }
 
 export async function runManualRunRecovery() {
@@ -111,10 +116,12 @@ export async function runManualRunRecovery() {
   }
 }
 
-if (environment.NODE_ENV !== "test") {
-  const recoveryInterval = setInterval(runManualRunRecovery, 30_000);
+export async function startQueueRuntime() {
+  if (recoveryInterval) return;
+  startQueueDepthCollector();
+  await runManualRunRecovery();
+  recoveryInterval = setInterval(runManualRunRecovery, 30_000);
   recoveryInterval.unref();
 }
-startQueueDepthCollector();
 
 export { redisConnection, scheduledJobsQueue, immediateJobsQueue };

@@ -78,6 +78,131 @@ export const auditAPI = {
     api.get("/audit/export", { params: { startDate, endDate, limit } }),
 };
 
+export interface ManualRunPreview {
+  jobId: string;
+  jobName: string;
+  targetAgentId: string;
+  targetLabel: string;
+  command: string;
+  actionVersion: string;
+  timeoutMs: number;
+  maxOutputBytes: number;
+  requiredReleaseId: string;
+  notifications: {
+    onSuccess: boolean;
+    onFailure: boolean;
+    recipients: string[];
+  };
+}
+
+export interface ManualRunPreviewResponse {
+  previewId: string;
+  previewVersion: 1;
+  previewHash: string;
+  expiresAt: string;
+  preview: ManualRunPreview;
+}
+
+export interface ApproveManualRunRequest {
+  previewId: string;
+  previewHash: string;
+}
+
+export interface ManualRunAcceptanceResponse {
+  runId: string;
+  status: string;
+  message?: string;
+  idempotentReplay?: boolean;
+  queueStateConfirmed?: boolean;
+}
+
+export interface SavedRunAttemptEvidence {
+  attemptId?: string;
+  targetExecutionId?: string;
+  operationId?: string;
+  sequence?: number;
+  status?: string;
+  dispatchedAt?: string;
+  acknowledgedAt?: string;
+  completedAt?: string;
+  outcome?: string;
+  exitCode?: number;
+  reasonCode?: string;
+}
+
+export interface SavedRunTransitionEvidence {
+  sequence?: number;
+  from?: string;
+  to?: string;
+  at?: string;
+  reasonCode?: string;
+  source?: string;
+  attemptId?: string;
+}
+
+export interface SavedRunEvidence {
+  runId: string;
+  jobId: string;
+  targetAgentId?: string;
+  status: string;
+  requiresReview?: boolean;
+  reasonCode?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  queuedAt?: string;
+  completedAt?: string;
+  transitionSequence?: number;
+  attempts?: SavedRunAttemptEvidence[];
+  transitions?: SavedRunTransitionEvidence[];
+  terminalSummary?: {
+    status?: string;
+    outcome?: string;
+    exitCode?: number;
+    reasonCode?: string;
+    completedAt?: string;
+  };
+}
+
+export interface SavedRunEvidenceListResponse {
+  runs: SavedRunEvidence[];
+  hasMore: boolean;
+}
+
+export type ReconciliationBlockedReason =
+  | "FEATURE_DISABLED"
+  | "READ_ONLY_ACTOR"
+  | "NO_SUPPORTED_PROOF"
+  | "TARGET_ACCESS_DENIED"
+  | "EVIDENCE_UNAVAILABLE";
+
+export interface RunReconciliation {
+  runId: string;
+  attemptId: string;
+  targetAgentId: string;
+  status: string;
+  transitionSequence: number;
+  eligible: boolean;
+  blockedReason: ReconciliationBlockedReason | null;
+  proof: null | { version: number; proofId: string; recordedAt: string; terminalTransitionSequence: number };
+  resolution: null | { resolutionId: string; actorId: string; actorRole: string; recordedAt: string; purpose: string; reason: string };
+  originalHoldObservation: "PRESENT" | "ABSENT" | "UNAVAILABLE";
+}
+
+export interface RecordReconciliationResolutionRequest {
+  proofId: string;
+  expectedTransitionSequence: number;
+  reason: string;
+}
+
+export interface ReconciliationResolutionResponse {
+  resolutionId: string;
+  runId: string;
+  status: "UNKNOWN";
+  releaseIntentRecorded: true;
+  originalHoldObservation: "ABSENT" | "PRESENT" | "UNAVAILABLE";
+  targetAvailability: "NOT_ESTABLISHED";
+}
+
 export const jobsAPI = {
   getAll: () => api.get("/jobs/getJobs"),
   getById: (id: string) => api.get("/jobs/getJobById/" + id),
@@ -86,10 +211,24 @@ export const jobsAPI = {
     api.put("/jobs/updateJob/" + id, data),
   delete: (id: string) => api.delete("/jobs/deleteJob/" + id),
   toggle: (id: string) => api.patch("/jobs/toggleJobStatus/" + id),
-  runNow: (id: string, requestKey?: string) => api.post(
+  previewRun: (id: string) => api.post<ManualRunPreviewResponse>("/jobs/previewJobRun/" + id),
+  runNow: (id: string, approval: ApproveManualRunRequest, idempotencyKey: string) => api.post<ManualRunAcceptanceResponse>(
     "/jobs/runJobNow/" + id,
-    undefined,
-    requestKey ? { headers: { "Idempotency-Key": requestKey } } : undefined,
+    approval,
+    { headers: { "Idempotency-Key": idempotencyKey } },
+  ),
+  // Evidence inspection must surface 401/403 to the panel; it must never turn a
+  // read into a refresh POST while protected run data is being cleared.
+  listRuns: (id: string) => api.get<SavedRunEvidenceListResponse>("/jobs/" + id + "/runs", { skipAuthRefresh: true } as Record<string, unknown>),
+  getRun: (id: string, runId: string) => api.get<SavedRunEvidence>("/jobs/" + id + "/runs/" + runId, { skipAuthRefresh: true } as Record<string, unknown>),
+  getReconciliation: (id: string, runId: string) => api.get<RunReconciliation>("/jobs/" + id + "/runs/" + runId + "/reconciliation", {
+    headers: { "Cache-Control": "no-store" },
+    skipAuthRefresh: true,
+  } as Record<string, unknown>),
+  recordReconciliationResolution: (id: string, runId: string, body: RecordReconciliationResolutionRequest, idempotencyKey: string) => api.post<ReconciliationResolutionResponse>(
+    "/jobs/" + id + "/runs/" + runId + "/reconciliation",
+    body,
+    { headers: { "Idempotency-Key": idempotencyKey, "Cache-Control": "no-store" }, skipAuthRefresh: true } as Record<string, unknown>,
   ),
 };
 

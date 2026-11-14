@@ -5,7 +5,93 @@
   <meta charset="UTF-8" />
   <link rel="icon" type="image/png" href="/axon-logo.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Axon</title>
+  <meta name="description" content="Axon is the deterministic Linux server automation and execution control plane. Review exact commands, target exact machines with digest-pinned sandboxes, and audit immutable results without open SSH ports." />
+  <meta name="keywords" content="linux server automation, deterministic execution control plane, secure remote execution, zero trust server control, fail closed devops, arqp quiescence, exact server targeting" />
+  <meta name="author" content="Axon Systems" />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+  <link rel="canonical" href="https://axon.local/" />
+
+  <!-- OpenGraph Metadata -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Axon Control Plane" />
+  <meta property="og:title" content="Axon — Reviewed Server Work & Deterministic Control Plane" />
+  <meta property="og:description" content="Review the command. Target the exact machine. Audit every byte with cryptographic evidence. Zero open SSH ports." />
+  <meta property="og:url" content="https://axon.local" />
+  <meta property="og:image" content="/axon-logo.png" />
+
+  <!-- Twitter Card Metadata -->
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Axon — Reviewed Server Work" />
+  <meta name="twitter:description" content="Deterministic Linux server control plane with exact-server targeting, digest-pinned sandboxing, and immutable audit trails." />
+  <meta name="twitter:image" content="/axon-logo.png" />
+
+  <!-- AEO & Search Engine Schema.org Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "name": "Axon",
+        "applicationCategory": "DevOpsApplication",
+        "operatingSystem": "Linux, Windows",
+        "description": "Deterministic Linux server automation and execution control plane with exact-machine targeting, zero inbound ports, and fail-closed audit verification.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "Exact Server Targeting with hardware UUID and monotonic generation binding",
+          "Server-Bound Two-Man Rule Approval",
+          "Fail-Closed Execution Invariant: UNKNOWN runs never auto-retry",
+          "Digest-Pinned Containerized Sandboxing",
+          "Automated Quiescence Certification (ARQP)",
+          "Immutable Cryptographic Attempt Journaling"
+        ]
+      },
+      {
+        "@type": "Organization",
+        "name": "Axon Systems",
+        "url": "https://axon.local",
+        "logo": "https://axon.local/axon-logo.png"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "How does Axon ensure server operations do not accidentally damage production?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Axon enforces strict exact-server targeting, digest-pinned container isolation, and a fail-closed execution invariant where uncertain outcomes are marked UNKNOWN and never automatically retried."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does Axon require opening inbound SSH ports?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. The Axon agent establishes an outbound TLS/WSS connection to the control plane, eliminating the need for open inbound firewall ports or shared SSH private keys."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "What is ARQP machine quiescence recovery?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "ARQP (Agent Restart Quiescence Protocol) allows releasing execution holds on disconnected agents only after the agent safely restarts, inspects its local OS process table, verifies process death, and issues a cryptographically signed Quiescence Certificate."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+
+  <title>Axon — reviewed server work</title>
 </head>
 
 <body>

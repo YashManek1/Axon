@@ -20,7 +20,7 @@ const ENVELOPE = {
 };
 
 class MockSocket extends EventEmitter {
-  constructor(agentId, orgId, releaseId = null) {
+  constructor(agentId, orgId, releaseId = process.env.AXON_RELEASE_ID) {
     super();
     this.agentId = agentId;
     this.orgId = orgId;

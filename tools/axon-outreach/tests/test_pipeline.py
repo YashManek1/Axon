@@ -34,19 +34,19 @@ def qualified_pipeline_input() -> dict:
 
 
 class OutreachPipelineTests(unittest.TestCase):
-    def test_qualified_account_reaches_review_only(self) -> None:
+    def test_structurally_passing_account_is_held_without_recipients(self) -> None:
         bundle = build_campaign_bundle(qualified_pipeline_input())
 
         self.assertTrue(verify_bundle(bundle))
         self.assertEqual(
-            bundle["decisions"][0]["state"], "AWAITING_HUMAN_APPROVAL"
+            bundle["decisions"][0]["state"], "AWAITING_EVIDENCE_REVIEW"
         )
-        self.assertEqual(len(bundle["manifest"]["items"]), 1)
+        self.assertEqual(bundle["manifest"]["items"], [])
         self.assertEqual(bundle["manifest"]["approval"]["status"], "pending")
         self.assertFalse(bundle["manifest"]["capabilities"]["can_send"])
         self.assertFalse(bundle["capabilities"]["can_send"])
         self.assertEqual(
-            bundle["manifest"]["items"][0]["message_quality"]["score"], 10
+            bundle["decisions"][0]["evidence_status"], "SUPPLIED_UNVERIFIED"
         )
 
     def test_agent_contracts_are_complete_and_persisted(self) -> None:
@@ -192,7 +192,7 @@ class OutreachPipelineTests(unittest.TestCase):
         second = build_campaign_bundle(qualified_pipeline_input())
         self.assertEqual(first, second)
         changed = copy.deepcopy(first)
-        changed["decisions"][0]["use_case_fit"] = 10
+        changed["decisions"][0]["proposed_use_case_fit"] = 10
         self.assertFalse(verify_bundle(changed))
 
     def test_bundle_write_is_checksum_addressed_and_write_once(self) -> None:

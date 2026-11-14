@@ -2,7 +2,22 @@ import bcrypt from "bcrypt";
 import express from "express";
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../config/queue.js", () => {
+  const store = new Map();
+  return {
+    redisConnection: {
+      get: vi.fn(async (key) => store.get(key) ?? null),
+      set: vi.fn(async (key, val) => {
+        store.set(key, val);
+        return "OK";
+      }),
+    },
+    scheduledJobsQueue: { add: vi.fn() },
+    immediateJobsQueue: { add: vi.fn() },
+  };
+});
 import Agent from "../models/agent.js";
 import Organization from "../models/organization.js";
 import User from "../models/user.js";

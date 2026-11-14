@@ -10,7 +10,7 @@ The six names in this design are logical responsibilities with versioned contrac
 
 ## What the first slice does
 
-Input is a manually prepared JSON file containing organization-level public evidence, a qualification rubric, a role category, a use-case hypothesis, and fresh suppression status. The pipeline produces a checksum-addressed review bundle. A passing item stops at `AWAITING_HUMAN_APPROVAL`; rejected items retain a reason code.
+Input is a manually prepared JSON file containing organization-level public evidence, a proposed qualification rubric, a role category, a use-case hypothesis, and fresh suppression status. Pipeline v3 produces an evidence-hold bundle: every structurally passing candidate stops at `AWAITING_EVIDENCE_REVIEW`, marked `SUPPLIED_UNVERIFIED`. The outward manifest has no recipients or drafts and pending approval; rejected items retain a reason code. No supplied reviewer field can bypass the hold.
 
 The only approved capability sentence is:
 
@@ -24,24 +24,25 @@ Every role persists its `role`, `backstory`, `purpose`, `goal`, `task`, input co
 
 | Role | Senior responsibility | Output | Gate that limits it |
 |---|---|---|---|
-| Research | B2B account research engineer | Normalized, dated, sourced organization evidence | Rejects missing, stale, unverifiable, or personal evidence |
-| Qualification | Revenue operations and ICP analyst | Recomputed five-dimension score | Fixed rubric and 7/10 threshold; no model discretion |
-| Use-case | Solutions architect for operations teams | One pain hypothesis, owner role, and capability ID | Requires supporting evidence and a known capability |
-| Draft | Enterprise outbound copywriter | One concise subject and body | May use only verified evidence and the capability ledger |
-| Critic | Adversarial messaging and claims reviewer | Pass/fail findings | Rejects unsupported, inflated, vague, long, or pushy copy |
-| Verification | Campaign release engineer | Checksum-bound item for human review | Re-runs manifest/privacy/suppression gates; cannot approve or send |
+| Research | B2B account research engineer | Structurally checked, dated source records; supplied evidence remains unverified | Rejects malformed, stale, contradictory, or personal inputs; does not authenticate sources |
+| Qualification | Revenue operations and ICP analyst | Recomputed proposed five-dimension score, not buyer qualification | Fixed rubric and 7/10 structural threshold; semantic truth still requires independent review |
+| Use-case | Solutions architect for operations teams | Proposed pain hypothesis, owner role, and capability ID | Checks supplied evidence references and known capability; does not establish actual pain or authority |
+| Draft | Enterprise outbound copywriter | Ephemeral candidate subject and body used only for internal preflight | Uses supplied source records and capability ledger; no candidate draft is released by v3 |
+| Critic | Adversarial messaging and claims reviewer | Internal preflight pass/fail findings | Checks configured claims/copy rules; does not establish semantic evidence quality |
+| Verification | Evidence-hold bundle verifier | Checksum-bound evidence hold and empty pending manifest | Runs complete manifest/privacy/suppression preflight, discards recipients and drafts; cannot approve or send |
 
 ## State and authority model
 
 ```text
 SUPPLIED_EVIDENCE
-  -> RESEARCH_VERIFIED
-  -> QUALIFIED
+  -> RESEARCH_STRUCTURALLY_CHECKED
+  -> PROPOSED_SCORE_CHECKED
   -> USE_CASE_SELECTED
   -> DRAFTED
   -> CRITIC_PASSED
-  -> VERIFIED
-  -> AWAITING_HUMAN_APPROVAL
+  -> MANIFEST_PREFLIGHT_PASSED
+  -> DISCARD_EPHEMERAL_RECIPIENT_AND_DRAFT
+  -> AWAITING_EVIDENCE_REVIEW
 ```
 
 Any failed gate produces `REJECTED`; there is no transition to approved, scheduled, or sent. Suppression overrides qualification. Per-item manifest preflight prevents a batch wrapper from hiding personal contact data, unknown jurisdiction, stale consent/suppression state, placeholders, or forbidden claims. Canonical JSON and SHA-256 make later changes visible; exclusive creation makes an existing artifact write-once.
@@ -66,9 +67,11 @@ Local review artifacts do not establish that an account may lawfully or appropri
 
 ## Next implementation slices
 
+27 September implementation checkpoint (independently accepted locally): pipeline v3 applies a fail-closed evidence hold after the complete candidate-manifest preflight. The local suite passes 61 tests, exit 0. The three known semantic-quality gaps remain unresolved evidence, not machine-qualified leads, and all structurally passing candidates are held. Historical v1/v2 artifacts remain unchanged and structurally verifiable only. Acceptance: `.codex/evidence/server-approval-20260927/architecture-outreach-review.md`; regression: `.codex/evidence/outreach-v3-regression.log`. A separate authenticated, evidence-bound review contract is required before releasing any recipient; that contract and sending are outside this slice. The numbered history below records the prior 26 September acceptance, not v3 acceptance.
+
 1. DONE locally: schema-2 source capture records URL, source type, publication/retrieval times, verbatim excerpt, excerpt digest, and saved-text digest. It is read-only and has no browser/HTTP adapter; a human must still verify source authenticity and claim context.
 2. DONE locally for research review: an unqualified discovery lane records first-party service-fit hypotheses and questions for three organizations without representing them as qualified leads. Its separate `axon_discovery_review` artifact remains `DISCOVERY_REVIEW_ONLY`; all execution capabilities are false, and qualified-artifact validators reject it. The excerpts were supplied manually and require human source review.
-3. IN PROGRESS: publication-based trigger freshness, explicit contradiction rejection, and score-to-fact/use-case binding are implemented. Next evaluate research quality on a labeled set with misleading publication dates, vague pain, and weak buyer/assessment evidence.
+3. IN PROGRESS: publication-based trigger freshness, explicit contradiction rejection, and score-to-fact/use-case binding are implemented. A test-only labeled evaluation was independently accepted on 26 September: 11 synthetic cases, with 8 structural cases and 3 separately recorded semantic-quality gaps; the full local suite passes 53 tests and 30 subtests. Correctly typed but vague pain, team-existence buyer claims and service-offering assessment claims can still reach human review, so semantic qualification enforcement is not complete. Evidence: `.codex/evidence/outreach-quality-20260926.md` and `.codex/evidence/security-acceptance-20260926.md`. Next decide and implement fail-closed semantic evidence validation without treating public service fit as first-hand buying intent or contact permission.
 4. Add an organization-level campaign review UI and immutable approval object bound to bundle checksum, reviewer, expiry, and exact items.
 5. Design contact resolution and suppression as a separate privacy-reviewed service. Do not copy contacts or credentials from the Desktop sender.
 6. Add a provider adapter only after independent security, legal/deliverability, sandbox, and canary acceptance. Sending must consume a still-valid approval and re-check suppression transactionally.

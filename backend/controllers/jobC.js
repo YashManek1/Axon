@@ -10,10 +10,17 @@ import { resourceAccessFilter } from "../middlewares/jwt.js";
 import {
   ManualRunError,
   buildQueueData,
+  createApprovedShellRun,
   createManualShellRun,
+  enqueueApprovedRun,
   enqueueManualRun,
 } from "../services/jobRunService.js";
 import { getExecutionPolicyViolation } from "../services/executionPolicy.js";
+import {
+  ApprovalError,
+  createJobRunPreview,
+} from "../services/jobRunPreviewService.js";
+import { approvedRunSchema } from "../schemas/jobSchemas.js";
 
 const JOB_NAME = "dispatch-job";
 const logger = createChildLogger({ module: "job-controller" });
@@ -554,6 +561,76 @@ export const runJobNow = async (req, res) => {
       return res.status(404).json({ message: "Job not found" });
     }
 
+    const requestBody = req.body ?? {};
+    const strictApprovalPath = job.type === "shell";
+
+    if (strictApprovalPath) {
+      res.set("Cache-Control", "no-store");
+      if (!requestBody.previewId || !requestBody.previewHash) {
+        return res.status(428).json({
+          code: "PREVIEW_REQUIRED",
+          message: "Create and approve a current server-bound preview before launching this job",
+        });
+      }
+      const parsedApproval = approvedRunSchema.safeParse(requestBody);
+      if (!parsedApproval.success) {
+        return res.status(400).json({
+          code: "INVALID_PREVIEW",
+          message: "The approval body must contain only a valid previewId and previewHash",
+        });
+      }
+      const requestKey = req.get("idempotency-key");
+      if (typeof requestKey !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)) {
+        return res.status(400).json({
+          code: "INVALID_REQUEST_KEY",
+          message: "Idempotency-Key must be a UUID supplied in the request header",
+        });
+      }
+
+      const created = await createApprovedShellRun({
+        orgId: req.user.orgId,
+        userId: req.user.id,
+        jobId: job._id,
+        requestKey,
+        previewId: parsedApproval.data.previewId,
+        previewHash: parsedApproval.data.previewHash,
+        ipAddress: req.ip || "unknown",
+        userAgent: req.get("user-agent") || "unknown",
+      });
+      if (!created.created) {
+        return res.status(200).json({
+          message: "Job launch already accepted",
+          runId: created.run.runId,
+          status: created.run.status,
+          idempotentReplay: true,
+        });
+      }
+      const queuedRun = await enqueueApprovedRun(
+        immediateJobsQueue,
+        buildQueueData(created.run),
+        "QUEUE",
+        created.run,
+      );
+      let queueStateConfirmed = queuedRun.status === "QUEUED";
+      let responseStatus = queuedRun.status;
+      if (queueStateConfirmed) {
+        try {
+          await setJobState(job._id, "QUEUED");
+        } catch (error) {
+          logger.warn({ err: error, runId: created.run.runId }, "Accepted run status projection unavailable");
+          queueStateConfirmed = false;
+          responseStatus = "ACCEPTED";
+        }
+      }
+      return res.status(queueStateConfirmed ? 200 : 202).json({
+        message: "Job launch accepted",
+        runId: created.run.runId,
+        status: responseStatus,
+        queueStateConfirmed,
+        idempotentReplay: false,
+      });
+    }
+
     if (rejectUnsupportedExecution(res, job)) return;
 
     // HTTP behavior remains on the established path during this shell-v2 slice.
@@ -638,7 +715,7 @@ export const runJobNow = async (req, res) => {
       idempotentReplay: false,
     });
   } catch (error) {
-    if (error instanceof ManualRunError) {
+    if (error instanceof ManualRunError || error instanceof ApprovalError) {
       return res.status(error.statusCode).json({
         code: error.code,
         message: error.message,
@@ -648,6 +725,27 @@ export const runJobNow = async (req, res) => {
     logger.error(
       { err: error, jobId: req.params?.jobId, orgId: req.user?.orgId },
       "Manual job trigger failed",
+    );
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const previewJobRun = async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const preview = await createJobRunPreview({
+      orgId: req.user.orgId,
+      actorId: req.user.id,
+      jobId: req.resource._id,
+    });
+    return res.status(201).json(preview);
+  } catch (error) {
+    if (error instanceof ApprovalError) {
+      return res.status(error.statusCode).json({ code: error.code, message: error.message });
+    }
+    logger.error(
+      { err: error, jobId: req.params?.jobId, orgId: req.user?.orgId },
+      "Manual job preview failed",
     );
     return res.status(500).json({ message: "Internal server error" });
   }

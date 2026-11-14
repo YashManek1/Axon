@@ -33,6 +33,7 @@ const AttemptSchema = new mongoose.Schema(
     sequence: { type: Number, required: true, min: 1 },
     status: { type: String, enum: ATTEMPT_STATUSES, default: "PENDING" },
     dispatchedAt: Date,
+    dispatchedGeneration: { type: Number, default: 0 },
     acknowledgedAt: Date,
     completedAt: Date,
     outcome: {
@@ -63,6 +64,70 @@ const TransitionSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const ApprovalSchema = new mongoose.Schema(
+  {
+    previewId: { type: String, required: true, immutable: true },
+    previewVersion: { type: Number, required: true, immutable: true },
+    previewHash: { type: String, required: true, immutable: true },
+    issuedAt: { type: Date, required: true, immutable: true },
+    expiresAt: { type: Date, required: true, immutable: true },
+    acceptedAt: { type: Date, required: true, immutable: true },
+    preview: { type: mongoose.Schema.Types.Mixed, required: true, immutable: true },
+    material: { type: mongoose.Schema.Types.Mixed, required: true, immutable: true },
+  },
+  { _id: false, versionKey: false },
+);
+
+const NonDispatchProofSchema = new mongoose.Schema(
+  {
+    version: { type: Number, required: true, enum: [1], immutable: true },
+    proofId: { type: String, required: true, immutable: true },
+    attemptId: { type: String, required: true, immutable: true },
+    targetAgentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agent",
+      required: true,
+      immutable: true,
+    },
+    fromTransitionSequence: { type: Number, required: true, min: 1, immutable: true },
+    terminalTransitionSequence: { type: Number, required: true, min: 2, immutable: true },
+    recordedAt: { type: Date, required: true, immutable: true },
+  },
+  { _id: false, versionKey: false },
+);
+
+const OperatorResolutionSchema = new mongoose.Schema(
+  {
+    version: { type: Number, required: true, enum: [1], immutable: true },
+    resolutionId: { type: String, required: true, immutable: true },
+    requestFingerprint: { type: String, required: true, immutable: true },
+    actorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      immutable: true,
+    },
+    actorRole: {
+      type: String,
+      enum: ["admin", "operator"],
+      required: true,
+      immutable: true,
+    },
+    recordedAt: { type: Date, required: true, immutable: true },
+    proofId: { type: String, required: true, immutable: true },
+    terminalTransitionSequence: { type: Number, required: true, min: 2, immutable: true },
+    purpose: {
+      type: String,
+      enum: ["RELEASE_NEVER_DISPATCHED", "RELEASE_DISPATCHED_QUIESCENT"],
+      required: true,
+      immutable: true,
+    },
+    reason: { type: String, required: true, minlength: 1, maxlength: 500, immutable: true },
+    certificateHash: { type: String, default: null, immutable: true },
+  },
+  { _id: false, versionKey: false },
+);
+
 const JobRunSchema = new mongoose.Schema(
   {
     runId: { type: String, required: true, unique: true, index: true },
@@ -90,6 +155,10 @@ const JobRunSchema = new mongoose.Schema(
     queueJobId: { type: String, required: true },
     requestKey: { type: String, default: null },
     requestFingerprint: { type: String, required: true },
+    approval: { type: ApprovalSchema, default: null },
+    reconciliationSafetyVersion: { type: Number, enum: [1], immutable: true },
+    nonDispatchProof: { type: NonDispatchProofSchema, immutable: true },
+    operatorResolution: { type: OperatorResolutionSchema, immutable: true },
     triggeredBy: {
       userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
       ipAddress: { type: String, default: "unknown" },
@@ -144,6 +213,14 @@ JobRunSchema.index(
   {
     unique: true,
     partialFilterExpression: { requestKey: { $type: "string" } },
+  },
+);
+JobRunSchema.index(
+  { "approval.previewId": 1 },
+  {
+    unique: true,
+    name: "unique_approval_preview",
+    partialFilterExpression: { "approval.previewId": { $type: "string" } },
   },
 );
 JobRunSchema.index({ orgId: 1, jobId: 1, createdAt: -1 });

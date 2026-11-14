@@ -2,12 +2,13 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import {
   Activity, Server, Play, BookOpen, FileText, Terminal,
-  Search, Bell, Sun, Moon, Menu, LogOut, ShieldCheck, Settings,
+  Sun, Moon, Menu, LogOut, ShieldCheck, Settings,
 } from "lucide-react";
 import { useAuthStore } from "../../stores/authStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { authAPI } from "../../services/api";
 import { toast } from "../../stores/toastStore";
+import AxonBrand from "../brand/AxonBrand";
 
 interface NavItem {
   path: string;
@@ -24,8 +25,8 @@ function buildNavGroups(isAdmin: boolean): { label: string | null; items: NavIte
     {
       label: "Fleet",
       items: [
-        { path: "/dashboard/agents",   label: "Agents",   icon: <Server   size={16} /> },
-        { path: "/dashboard/jobs",     label: "Jobs",     icon: <Play     size={16} /> },
+        { path: "/dashboard/agents",   label: "Servers",    icon: <Server   size={16} /> },
+        { path: "/dashboard/jobs",     label: "Operations", icon: <Play     size={16} /> },
         { path: "/dashboard/runbooks", label: "Runbooks", icon: <BookOpen size={16} /> },
       ],
     },
@@ -53,8 +54,8 @@ function buildNavGroups(isAdmin: boolean): { label: string | null; items: NavIte
 
 const pageTitles: Record<string, string> = {
   overview: "Overview",
-  agents:   "Agents",
-  jobs:     "Jobs",
+  agents:   "Servers",
+  jobs:     "Operations",
   runbooks: "Runbooks",
   audit:    "Audit Log",
   live:     "Live",
@@ -91,9 +92,9 @@ export default function DashboardLayout() {
         />
       )}
 
-      <aside className={`w-58 border-r border-edge bg-surface flex flex-col fixed left-0 top-0 h-screen transition-transform lg:relative lg:sticky lg:w-auto z-60 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
+      <aside className={`w-58 border-r border-edge bg-surface flex flex-col fixed left-0 top-0 h-screen transition-transform lg:relative lg:sticky lg:w-58 lg:shrink-0 z-60 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
         <div className="px-4 pt-4 pb-3.5 border-b border-edge flex items-center gap-2.5">
-          <div className="flex items-center gap-2 flex-1 px-2 py-1.75 rounded-sm border border-edge bg-surface-2 cursor-pointer transition-colors hover:border-strong">
+          <div className="flex items-center gap-2 flex-1 px-2 py-1.75 rounded-sm border border-edge bg-surface-2">
             <span className="w-6 h-6 rounded bg-primary flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
               {initials[0]}
             </span>
@@ -122,7 +123,8 @@ export default function DashboardLayout() {
                         ? "bg-accent/10 text-primary"
                         : "text-ink-2 hover:bg-surface-2 hover:text-ink"
                     }`}
-                    onClick={() => { navigate(item.path); setSidebarOpen(false); }}
+                  onClick={() => { navigate(item.path); setSidebarOpen(false); }}
+                  aria-current={active ? "page" : undefined}
                   >
                     <span className="w-4 h-4 flex-shrink-0">{item.icon}</span>
                     <span>{item.label}</span>
@@ -134,10 +136,6 @@ export default function DashboardLayout() {
         </nav>
 
         <div className="mt-auto px-3 pb-3 border-t border-edge">
-          <div className="flex items-center gap-1 text-xs text-muted px-0.5 pb-2.5">
-            <span className="w-2 h-2 rounded-full bg-success flex-shrink-0" />
-            <span className="font-mono">control plane · v1</span>
-          </div>
           <button
             onClick={handleLogout}
             title="Sign out"
@@ -155,7 +153,7 @@ export default function DashboardLayout() {
         </div>
       </aside>
 
-      <div className="flex flex-col min-w-0">
+      <div className="flex flex-1 flex-col min-w-0">
         <div className="sticky top-0 z-20 flex items-center gap-3.5 px-5.5 h-14 border-b border-edge bg-opacity-88 backdrop-blur">
           <button
             className="lg:hidden inline-flex items-center justify-center w-8 h-8 rounded-sm text-ink-2 hover:text-ink hover:bg-surface-2 transition-colors"
@@ -166,32 +164,12 @@ export default function DashboardLayout() {
           </button>
 
           <div className="flex items-center gap-2 text-sm min-w-0">
-            <span className="text-ink-2 hidden xs:inline">Axon</span>
+            <AxonBrand className="hidden xs:inline-flex text-ink-2" />
             <span className="text-muted hidden xs:inline">/</span>
             <span className="font-semibold text-ink truncate">{pageTitle}</span>
           </div>
 
           <span className="flex-1" />
-
-          <div className="hidden md:flex items-center gap-2 flex-1 max-w-xs px-3 py-1.75 rounded-sm border border-edge bg-surface-2 text-muted cursor-text text-sm">
-            <Search size={14} />
-            <span>Search agents, jobs, audit…</span>
-            <span className="flex-1" />
-            <span className="font-mono text-xs border border-strong rounded px-1">⌘K</span>
-          </div>
-
-          <div className="hidden sm:flex items-center gap-1.75 text-sm text-ink-2">
-            <span className="w-2 h-2 rounded-full bg-success flex-shrink-0" />
-            <span>operational</span>
-          </div>
-
-          <button
-            className="inline-flex items-center justify-center w-8 h-8 rounded-sm text-ink-2 hover:text-ink hover:bg-surface-2 transition-colors"
-            aria-label="Notifications"
-            onClick={() => toast.info("Notifications", "No new notifications")}
-          >
-            <Bell size={16} />
-          </button>
 
           <button
             className="inline-flex items-center justify-center w-8 h-8 rounded-sm text-ink-2 hover:text-ink hover:bg-surface-2 transition-colors"

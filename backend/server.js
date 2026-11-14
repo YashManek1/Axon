@@ -9,10 +9,11 @@ import { environment } from "./config/environment.js";
 import { createChildLogger } from "./config/logger.js";
 import { requestId } from "./middleware/requestId.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-import { scheduledJobsQueue } from "./config/queue.js";
+import { scheduledJobsQueue, startQueueRuntime } from "./config/queue.js";
 import mongoose from "mongoose";
 import { FLUSH_AGENT_TELEMETRY_JOB_NAME } from "./workers/telemetryFlushWorker.js";
-import { configureJobWorker } from "./workers/jobWorker.js";
+import { configureJobWorker, startJobWorkers } from "./workers/jobWorker.js";
+import { ensureApprovalIndexes } from "./services/jobRunPreviewService.js";
 import { httpRequestDuration, httpRequestTotal } from "./metrics.js";
 import {
   configureLogStreamBroker,
@@ -43,7 +44,6 @@ export const io = new Server(server, {
   },
 });
 configureLogStreamBroker(io);
-configureJobWorker(io);
 app.set("io", io);
 
 const apiLimiter = rateLimit({
@@ -180,6 +180,10 @@ io.on("connection", async (socket) => {
 async function startServer() {
   try {
     await connectMongoDb(environment.MONGO_URI);
+    await ensureApprovalIndexes();
+    configureJobWorker(io);
+    startJobWorkers();
+    await startQueueRuntime();
     await scheduledJobsQueue.add(
       FLUSH_AGENT_TELEMETRY_JOB_NAME,
       {},

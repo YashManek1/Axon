@@ -40,6 +40,7 @@ class MockSocket extends EventEmitter {
     this.clientType = "agent";
     this.authGeneration = 0;
     this.protocolVersions = [2];
+    this.releaseId = process.env.AXON_RELEASE_ID;
   }
 
   emit(eventName, payload) {
