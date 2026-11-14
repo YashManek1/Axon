@@ -1,10 +1,26 @@
 import userModel from "../models/user.js";
 import jobModel from "../models/job.js";
+import Agent from "../models/agent.js";
 import { scheduledJobsQueue, immediateJobsQueue } from "../config/queue.js";
 import mongoose from "mongoose";
 import { encryptSink, decryptSink } from "../utils/crypto.js";
 import { createChildLogger } from "../config/logger.js";
 import { setJobState } from "../services/dagStateManager.js";
+import { resourceAccessFilter } from "../middlewares/jwt.js";
+import {
+  ManualRunError,
+  buildQueueData,
+  createApprovedShellRun,
+  createManualShellRun,
+  enqueueApprovedRun,
+  enqueueManualRun,
+} from "../services/jobRunService.js";
+import { getExecutionPolicyViolation } from "../services/executionPolicy.js";
+import {
+  ApprovalError,
+  createJobRunPreview,
+} from "../services/jobRunPreviewService.js";
+import { approvedRunSchema } from "../schemas/jobSchemas.js";
 
 const JOB_NAME = "dispatch-job";
 const logger = createChildLogger({ module: "job-controller" });
@@ -12,6 +28,13 @@ const logger = createChildLogger({ module: "job-controller" });
 // ─── Helper: Prepare sink for queue (decrypt so worker gets plaintext) ───
 function prepareSinkForQueue(sink) {
   return decryptSink(sink);
+}
+
+function rejectUnsupportedExecution(res, definition) {
+  const violation = getExecutionPolicyViolation(definition);
+  if (!violation) return false;
+  res.status(409).json(violation);
+  return true;
 }
 
 export const createJob = async (req, res) => {
@@ -38,7 +61,10 @@ export const createJob = async (req, res) => {
       executionWindow,
       scheduleType,
       timezone,
+      targetAgentId,
     } = req.body;
+
+    if (rejectUnsupportedExecution(res, { type, payload, webhookUrl, sink })) return;
 
     const userId = req.user.id;
     const user = await userModel.findById(userId);
@@ -82,13 +108,27 @@ export const createJob = async (req, res) => {
       ? encryptSink(sink)
       : { type: null, uri: null, collectionName: null };
 
+    if (
+      targetAgentId &&
+      !(await Agent.exists({
+        _id: targetAgentId,
+        orgId: user.orgId,
+        decommissionedAt: null,
+      }))
+    ) {
+      return res.status(400).json({
+        code: "INVALID_TARGET_AGENT",
+        message: "Target agent must belong to this organization and be active",
+      });
+    }
+
     const newJob = new jobModel({
       userId: userId,
       name,
       type,
       schedule,
       payload,
-      enabled,
+      enabled: type === "shell" ? false : enabled,
       retryLimit,
       webhookUrl,
       orgId: user.orgId,
@@ -105,6 +145,7 @@ export const createJob = async (req, res) => {
       executionWindow,
       scheduleType,
       timezone,
+      targetAgentId: targetAgentId || null,
     });
 
     const circularCheck = await checkCircularDependency(
@@ -119,7 +160,7 @@ export const createJob = async (req, res) => {
 
     await newJob.save();
 
-    if (enabled !== false) {
+    if (type !== "shell" && enabled !== false) {
       await scheduledJobsQueue.add(
         JOB_NAME,
         {
@@ -164,7 +205,7 @@ export const createJob = async (req, res) => {
 export const getJobs = async (req, res) => {
   try {
     const jobs = await jobModel
-      .find({ orgId: req.user.orgId })
+      .find(resourceAccessFilter(req.user))
       .populate("userId", "username email");
 
     // ─── T2: Decrypt sink.uri before sending to frontend ───
@@ -184,9 +225,10 @@ export const getJobs = async (req, res) => {
 export const getJobById = async (req, res) => {
   try {
     const { jobId } = req.params;
-    const job = await jobModel
-      .findOne({ _id: jobId, orgId: req.user.orgId })
-      .populate("userId", "username email");
+    const job = await jobModel.populate(req.resource, {
+      path: "userId",
+      select: "username email",
+    });
 
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
@@ -210,13 +252,13 @@ export const updateJob = async (req, res) => {
   try {
     const { jobId } = req.params;
 
-    const job = await jobModel.findOne({
-      _id: jobId,
-      orgId: req.user.orgId,
-    });
+    const job = req.resource;
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
     }
+
+    // Legacy outbound definitions remain readable for evidence, but immutable in pilot mode.
+    if (rejectUnsupportedExecution(res, job)) return;
 
     const oldSchedule = job.schedule;
 
@@ -239,7 +281,17 @@ export const updateJob = async (req, res) => {
       executionWindow,
       scheduleType,
       timezone,
+      targetAgentId,
     } = req.body;
+
+    if (
+      rejectUnsupportedExecution(res, {
+        type: type ?? job.type,
+        payload: payload ?? job.payload,
+        webhookUrl: webhookUrl !== undefined ? webhookUrl : job.webhookUrl,
+        sink: sink !== undefined ? sink : job.sink,
+      })
+    ) return;
 
     if (name !== undefined) job.name = name;
     if (webhookUrl !== undefined) job.webhookUrl = webhookUrl;
@@ -264,6 +316,22 @@ export const updateJob = async (req, res) => {
     if (executionWindow !== undefined) job.executionWindow = executionWindow;
     if (scheduleType !== undefined) job.scheduleType = scheduleType;
     if (timezone !== undefined) job.timezone = timezone;
+    if (targetAgentId !== undefined) {
+      if (
+        targetAgentId &&
+        !(await Agent.exists({
+          _id: targetAgentId,
+          orgId: req.user.orgId,
+          decommissionedAt: null,
+        }))
+      ) {
+        return res.status(400).json({
+          code: "INVALID_TARGET_AGENT",
+          message: "Target agent must belong to this organization and be active",
+        });
+      }
+      job.targetAgentId = targetAgentId || null;
+    }
     if (schedule !== undefined) {
       job.schedule = schedule;
     }
@@ -308,7 +376,8 @@ export const updateJob = async (req, res) => {
       }
     }
 
-    if (enabled !== undefined) job.enabled = enabled;
+    if (enabled !== undefined) job.enabled = effectiveType === "shell" ? false : enabled;
+    if (effectiveType === "shell") job.enabled = false;
     if (retryLimit !== undefined) job.retryLimit = retryLimit;
 
     await job.save();
@@ -325,7 +394,7 @@ export const updateJob = async (req, res) => {
       logger.warn({ err, jobId: jobIdStr, schedule: oldSchedule }, "Failed to remove old repeatable job");
     }
 
-    if (job.enabled) {
+    if (job.enabled && job.type !== "shell") {
       await scheduledJobsQueue.add(
         JOB_NAME,
         {
@@ -370,13 +439,7 @@ export const updateJob = async (req, res) => {
 export const deleteJob = async (req, res) => {
   try {
     const { jobId } = req.params;
-    const userId = req.user.id;
-
-    const job = await jobModel.findOne({
-      _id: jobId,
-      userId,
-      orgId: req.user.orgId,
-    });
+    const job = req.resource;
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
     }
@@ -393,7 +456,7 @@ export const deleteJob = async (req, res) => {
       logger.warn({ err, jobId: jobIdStr, schedule: job.schedule }, "Failed to remove repeatable job");
     }
 
-    await jobModel.deleteOne({ _id: jobId, userId, orgId: req.user.orgId });
+    await jobModel.deleteOne({ _id: jobId, orgId: req.user.orgId });
     return res.status(200).json({ message: "Job deleted successfully" });
   } catch (error) {
     logger.error(
@@ -407,14 +470,30 @@ export const deleteJob = async (req, res) => {
 export const toggleJobStatus = async (req, res) => {
   try {
     const { jobId } = req.params;
-    const userId = req.user.id;
-    const job = await jobModel.findOne({
-      _id: jobId,
-      userId,
-      orgId: req.user.orgId,
-    });
+    const job = req.resource;
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
+    }
+
+    if (rejectUnsupportedExecution(res, job)) return;
+
+    if (job.type === "shell") {
+      job.enabled = false;
+      await job.save();
+      try {
+        await scheduledJobsQueue.removeRepeatable(
+          JOB_NAME,
+          { pattern: job.schedule },
+          String(job._id),
+        );
+      } catch (err) {
+        logger.warn({ err, jobId: String(job._id) }, "Failed to remove legacy shell schedule");
+      }
+      return res.status(200).json({
+        code: "SHELL_MANUAL_ONLY",
+        message: "Shell jobs are manual-only in execution protocol v2",
+        job,
+      });
     }
 
     job.enabled = !job.enabled;
@@ -477,49 +556,172 @@ export const toggleJobStatus = async (req, res) => {
 
 export const runJobNow = async (req, res) => {
   try {
-    const { jobId } = req.params;
-    const job = await jobModel.findOne({
-      _id: jobId,
-      orgId: req.user.orgId,
-    });
-
+    const job = req.resource;
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
     }
 
-    await immediateJobsQueue.add(
-      JOB_NAME,
-      {
-        jobId: job._id,
-        payload: job.payload,
+    const requestBody = req.body ?? {};
+    const strictApprovalPath = job.type === "shell";
+
+    if (strictApprovalPath) {
+      res.set("Cache-Control", "no-store");
+      if (!requestBody.previewId || !requestBody.previewHash) {
+        return res.status(428).json({
+          code: "PREVIEW_REQUIRED",
+          message: "Create and approve a current server-bound preview before launching this job",
+        });
+      }
+      const parsedApproval = approvedRunSchema.safeParse(requestBody);
+      if (!parsedApproval.success) {
+        return res.status(400).json({
+          code: "INVALID_PREVIEW",
+          message: "The approval body must contain only a valid previewId and previewHash",
+        });
+      }
+      const requestKey = req.get("idempotency-key");
+      if (typeof requestKey !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)) {
+        return res.status(400).json({
+          code: "INVALID_REQUEST_KEY",
+          message: "Idempotency-Key must be a UUID supplied in the request header",
+        });
+      }
+
+      const created = await createApprovedShellRun({
         orgId: req.user.orgId,
-        triggeredBy: {
-          userId: req.user.id,
-          ipAddress: req.ip || "unknown",
-          userAgent: req.get("user-agent") || "unknown",
+        userId: req.user.id,
+        jobId: job._id,
+        requestKey,
+        previewId: parsedApproval.data.previewId,
+        previewHash: parsedApproval.data.previewHash,
+        ipAddress: req.ip || "unknown",
+        userAgent: req.get("user-agent") || "unknown",
+      });
+      if (!created.created) {
+        return res.status(200).json({
+          message: "Job launch already accepted",
+          runId: created.run.runId,
+          status: created.run.status,
+          idempotentReplay: true,
+        });
+      }
+      const queuedRun = await enqueueApprovedRun(
+        immediateJobsQueue,
+        buildQueueData(created.run),
+        "QUEUE",
+        created.run,
+      );
+      let queueStateConfirmed = queuedRun.status === "QUEUED";
+      let responseStatus = queuedRun.status;
+      if (queueStateConfirmed) {
+        try {
+          await setJobState(job._id, "QUEUED");
+        } catch (error) {
+          logger.warn({ err: error, runId: created.run.runId }, "Accepted run status projection unavailable");
+          queueStateConfirmed = false;
+          responseStatus = "ACCEPTED";
+        }
+      }
+      return res.status(queueStateConfirmed ? 200 : 202).json({
+        message: "Job launch accepted",
+        runId: created.run.runId,
+        status: responseStatus,
+        queueStateConfirmed,
+        idempotentReplay: false,
+      });
+    }
+
+    if (rejectUnsupportedExecution(res, job)) return;
+
+    // HTTP behavior remains on the established path during this shell-v2 slice.
+    if (job.type === "http") {
+      await immediateJobsQueue.add(
+        JOB_NAME,
+        {
+          jobId: job._id,
+          payload: job.payload,
+          orgId: req.user.orgId,
+          triggeredBy: {
+            userId: req.user.id,
+            ipAddress: req.ip || "unknown",
+            userAgent: req.get("user-agent") || "unknown",
+          },
+          triggerType: "MANUAL_API",
+          webhookUrl: job.webhookUrl,
+          sink: prepareSinkForQueue(job.sink),
+          dependsOn: job.dependsOn || [],
+          notifications: job.notifications,
+          jobName: job.name,
+          executionWindow: job.executionWindow,
+          timezone: job.timezone,
+          timeout: job.timeout,
         },
-        triggerType: "MANUAL_API",
-        webhookUrl: job.webhookUrl,
-        // ─── Pass DECRYPTED sink to queue ───
-        sink: prepareSinkForQueue(job.sink),
-        dependsOn: job.dependsOn || [],
-        notifications: job.notifications,
-        jobName: job.name,
-        executionWindow: job.executionWindow,
-        timezone: job.timezone,
-        timeout: job.timeout,
-      },
-      {
-        removeOnComplete: true,
-        removeOnFail: true,
-        attempts: (job.retryLimit ?? 0) + 1,
-        backoff: { type: "exponential", delay: 2000 },
-      },
-    );
+        {
+          removeOnComplete: true,
+          removeOnFail: true,
+          attempts: (job.retryLimit ?? 0) + 1,
+          backoff: { type: "exponential", delay: 2000 },
+        },
+      );
+      await setJobState(job._id, "QUEUED");
+      return res.status(200).json({ message: "Job triggered manually" });
+    }
+
+    const requestKey = req.get("idempotency-key") ?? req.body?.requestKey;
+    if (
+      requestKey !== undefined &&
+      (typeof requestKey !== "string" || !requestKey.trim() || requestKey.length > 200)
+    ) {
+      return res.status(400).json({
+        code: "INVALID_REQUEST_KEY",
+        message: "Idempotency-Key must be a non-empty string of at most 200 characters",
+      });
+    }
+
+    const created = await createManualShellRun({
+      job,
+      orgId: req.user.orgId,
+      userId: req.user.id,
+      requestKey,
+      ipAddress: req.ip || "unknown",
+      userAgent: req.get("user-agent") || "unknown",
+    });
+
+    if (!created.created) {
+      return res.status(200).json({
+        message: "Job launch already accepted",
+        runId: created.run.runId,
+        status: created.run.status,
+        idempotentReplay: true,
+      });
+    }
+    if (!created.shouldQueue) {
+      return res.status(409).json({
+        code: created.run.reasonCode,
+        message: "The selected agent is offline; no substitute target was used",
+        runId: created.run.runId,
+        status: created.run.status,
+      });
+    }
+
+    const queueData = buildQueueData(created.run, job, created.agent);
+    const queuedRun = await enqueueManualRun(immediateJobsQueue, queueData);
     await setJobState(job._id, "QUEUED");
 
-    return res.status(200).json({ message: "Job triggered manually" });
+    return res.status(200).json({
+      message: "Job triggered manually",
+      runId: created.run.runId,
+      status: queuedRun.status,
+      idempotentReplay: false,
+    });
   } catch (error) {
+    if (error instanceof ManualRunError || error instanceof ApprovalError) {
+      return res.status(error.statusCode).json({
+        code: error.code,
+        message: error.message,
+        ...(error.runId ? { runId: error.runId } : {}),
+      });
+    }
     logger.error(
       { err: error, jobId: req.params?.jobId, orgId: req.user?.orgId },
       "Manual job trigger failed",
@@ -527,6 +729,69 @@ export const runJobNow = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+export const previewJobRun = async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const preview = await createJobRunPreview({
+      orgId: req.user.orgId,
+      actorId: req.user.id,
+      jobId: req.resource._id,
+    });
+    return res.status(201).json(preview);
+  } catch (error) {
+    if (error instanceof ApprovalError) {
+      return res.status(error.statusCode).json({ code: error.code, message: error.message });
+    }
+    logger.error(
+      { err: error, jobId: req.params?.jobId, orgId: req.user?.orgId },
+      "Manual job preview failed",
+    );
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+const VALID_ROLES = ["admin", "operator", "viewer", "user"];
+
+export async function updateJobPermissions(req, res) {
+  try {
+    const { id } = req.params;
+    const { allowedUsers = [], allowedRoles = [] } = req.body;
+
+    if (!Array.isArray(allowedUsers) || !Array.isArray(allowedRoles)) {
+      return res.status(400).json({ message: "allowedUsers and allowedRoles must be arrays" });
+    }
+    if (!allowedRoles.every((r) => VALID_ROLES.includes(r))) {
+      return res.status(400).json({ message: `allowedRoles must only contain: ${VALID_ROLES.join(", ")}` });
+    }
+
+    const invalidUserIds = allowedUsers.filter(
+      (userId) => !mongoose.Types.ObjectId.isValid(userId),
+    );
+    if (invalidUserIds.length > 0) {
+      return res.status(400).json({ message: "Permissions contain invalid user IDs" });
+    }
+
+    const orgUserCount = await userModel.countDocuments({
+      _id: { $in: allowedUsers },
+      orgId: req.user.orgId,
+    });
+    if (orgUserCount !== new Set(allowedUsers.map(String)).size) {
+      return res.status(400).json({ message: "Permissions must reference this organization" });
+    }
+
+    const job = req.resource;
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    job.permissions = { allowedUsers, allowedRoles };
+    await job.save();
+
+    return res.status(200).json({ message: "Permissions updated", permissions: job.permissions });
+  } catch (err) {
+    logger.error({ err, jobId: req.params?.id, orgId: req.user?.orgId }, "Failed to update job permissions");
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
 
 async function validateDependencies(dependsOn, orgId) {
   if (!dependsOn || !Array.isArray(dependsOn) || dependsOn.length === 0) {

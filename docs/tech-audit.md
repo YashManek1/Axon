@@ -1,153 +1,300 @@
 # Axon — Tech-Level Audit
 
-> Generated: 2026-06-03  
-> Framing: Axon's landing page makes **four concrete production-grade correctness claims**. This audit evaluates the gap between what each claim requires at the optimal production level and where the current implementation actually sits.
+> **Last verified against source: 2026-08-12.** Original audit: 2026-06-03.
+>
+> **Framing:** Axon's positioning makes four concrete production-grade correctness claims. This
+> document evaluates each against what the claim *optimally* requires, and states where the
+> implementation actually sits — with file references, so the claim can be checked rather than
+> trusted.
+
+> ⚠️ **If you are reading a cached or forked copy:** the 2026-06-03 revision of this file
+> described nine items as "gap" that have since shipped. Anything asserting that Axon lacks
+> dispatch ACK, allowlist enforcement, RBAC, hash-chain verification, sandboxing, or
+> observability is out of date. Verify against source before quoting.
 
 ---
 
-## Pain Point 1 — Duplicate Cron Execution at Scale (Exactly-Once)
+## Summary
+
+| Pain point | Claim status | Remaining gap |
+|---|---|---|
+| 1 — Duplicate execution | ✅ Closed correctly | Honest framing required (at-least-once, not exactly-once) |
+| 2 — SSH/firewall bypass | ✅ Closed | Scale ceiling beyond ~500 concurrent agents |
+| 3 — Immutable audit trail | ✅ Closed at the application layer | WORM export + external anchoring not started |
+| 4 — Jobs replace shell | ✅ Closed | Sandbox defaults to `none` when unset |
+
+---
+
+## Pain Point 1 — Duplicate Cron Execution at Scale
 
 ### The claim
-> "Even if 100 servers enqueue the same job simultaneously, an atomic Redis SETNX guarantees exactly one executes."
+
+> "Even if 100 servers enqueue the same job simultaneously, only one executes."
 
 ### What optimal actually requires
-True "exactly-once" is unattainable over an asynchronous network — the provably correct model is **at-least-once delivery + idempotent execution with fencing tokens**.
 
-The gap in plain SETNX/distributed-lock approaches:
-- **Lock expiry race (Kleppmann's critique of Redlock):** If a worker holds a Redis lock and GC/IO pauses it for >TTL milliseconds, the lock expires. A second worker acquires it. Now both workers execute the same job concurrently. Neither knows the other exists.
-- **BullMQ stalled-job redelivery:** BullMQ marks a job "stalled" if a worker dies mid-execution, then redelivers it. A correctly-behaved execution can be re-run after a transient worker crash.
+True exactly-once is unattainable over an asynchronous network. The provably correct model is
+**at-least-once delivery plus idempotent execution guarded by fencing tokens**.
 
-The optimal defense is **fencing tokens**: a monotonically incrementing counter attached to each lock acquisition, passed through to the execution sink. The execution sink rejects any request carrying a token ≤ the last-seen token for that job — making re-execution a cheap no-op rather than a double-charge.
+The failure modes a plain SETNX lock does not survive:
 
-### Current implementation
-`backend/services/distributedLock.js` — Redis SETNX + TTL lock. BullMQ `jobId` dedup drops duplicate enqueues while the job exists in the queue. Both provide good protection for the enqueue race.
+- **Lock expiry race** ([Kleppmann's critique of Redlock](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html)):
+  a worker holds a lock, GC- or IO-pauses for longer than the TTL, the lock expires, a second
+  worker acquires it. Both now execute concurrently and neither is aware of the other.
+- **BullMQ stalled-job redelivery:** BullMQ marks a job stalled when a worker dies mid-execution
+  and redelivers it. A correctly-behaved execution can be re-run after a transient crash.
 
-**Vulnerable to:** worker GC pause > lock TTL; BullMQ stalled-job redelivery; Mongo sink re-execution.
+The defense is a **fencing token** — a monotonically incrementing counter attached to each lock
+acquisition and passed through to the execution sink. The sink rejects any write carrying a
+token ≤ the last-seen token for that job. Re-execution becomes a cheap no-op rather than a
+double-write.
 
-### Gap and steps to close
-1. Add a fencing token (Redis `INCR` on a per-job counter, returned with the lock) to `distributedLock.js`.
-2. Pass the token through `jobWorker.js` to the Mongo sink writer (`jobWorker.js:224-239`) — the sink upserts on `(jobId, fencingToken)` using MongoDB's `$setOnInsert`, making re-execution idempotent.
-3. Configure BullMQ's `stalledInterval` and `maxStalledCount` to bound re-delivery.
-4. **Document honestly** that Axon provides at-least-once with idempotent sink, not exactly-once — any distributed system that makes exactly-once a hard guarantee is lying.
+### Current implementation — ✅ closed
+
+`backend/services/distributedLock.js` implements Redis `SETNX` + TTL **plus** a per-job `INCR`
+fencing counter returned with the lock. Release is guarded by a Lua script that verifies
+ownership atomically, so a worker cannot release a lock it no longer holds.
+
+**Critically, the token is validated at the point of use, not at acquisition.** A worker that
+acquired a lock, stalled past the TTL, and resumed finds its write rejected. Regression coverage
+lives in `backend/tests/fencingToken.test.js` and `backend/tests/distributedLock.test.js`.
+
+BullMQ `jobId` deduplication additionally drops duplicate enqueues while a job exists in the
+queue, covering the enqueue race separately from the execution race.
+
+### Remaining
+
+Documentation honesty, which the README now carries explicitly: Axon provides **at-least-once
+delivery with idempotent execution**, not exactly-once. Any distributed system claiming
+exactly-once as a hard guarantee is overselling.
 
 ---
 
-## Pain Point 2 — SSH/Firewall Blocked (Outbound-Only Agent)
+## Pain Point 2 — SSH/Firewall Blocked
 
 ### The claim
+
 > "The agent dials out on port 443. IT cannot object to HTTPS."
 
 ### What optimal actually requires
-The outbound-only model is architecturally correct and matches the approach used by production-grade systems (GitHub Actions runner, Tailscale, Cloudflare Tunnel). It is **best-in-class** at the architecture level.
 
-The gap is at **scale and security hardening**:
-- **Scale ceiling:** Node.js runs on a single event loop. Each Rust agent holds an open WebSocket. At hundreds to thousands of concurrent agents, Node's event loop becomes the bottleneck for the telemetry fan-out path (log chunks arriving from many agents simultaneously, being fanned out to UI clients via Socket.IO). Go's goroutine-per-connection model handles this O(N) concurrency natively.
-- **Auth model:** agent authenticates with a static `apiKey` (rotatable, but long-lived). Optimal: short-lived signed tokens (HMAC or JWT with 15-minute expiry) so a leaked key auto-expires.
-- **Dispatch reliability:** no acknowledgement from agent back to control plane that a dispatched job was received. If the WebSocket delivers but the agent crashes before ACKing, the job is marked dispatched but never executed — silently lost.
+The outbound-only model is architecturally correct and matches production-grade systems (GitHub
+Actions runners, Tailscale, Cloudflare Tunnel). It is best-in-class at the architecture level.
+The gaps are at hardening and scale:
 
-### Current implementation
-`agent/src/connection.rs` — Tokio + tungstenite WebSocket client, exponential reconnect backoff 1s→30s. Auth via `agentId + apiKey` header on upgrade. Reconnect queues Redis-held jobs on reconnect.
+- **Auth model:** a static long-lived `apiKey` means a leak persists until noticed. Optimal is
+  short-lived signed tokens that auto-expire.
+- **Dispatch reliability:** without acknowledgement, a job whose WebSocket frame was delivered to
+  an agent that then crashed is marked dispatched but never executed — silently lost.
+- **Scale ceiling:** Node runs a single event loop. Each agent holds an open WebSocket. Telemetry
+  fan-out across many simultaneous agents serializes on that loop.
 
-**Correct and solid.** The scale ceiling is not a problem today at small agent counts but becomes one beyond ~500 concurrent agents.
+### Current implementation — ✅ closed (auth + reliability); scale ceiling remains
 
-### Gap and steps to close
-1. **Go telemetry/log-stream gateway** (see "Planned Architecture" section): extract the agent WebSocket termination + telemetry batch + log fan-out to a Go microservice. Express/Socket.IO stays for CRUD/auth; it subscribes to log events via Redis pub/sub.
-2. Add dispatch acknowledgement: agent emits `job_ack { jobId }` on receiving dispatch; control plane marks job `DISPATCHED_ACKED`. Unacknowledged dispatches after N seconds → requeue.
-3. Move agent auth toward short-lived signed tokens: control plane issues a HMAC-signed token at registration, agent exchanges it for a new token before expiry (like AWS STS `AssumeRole`).
+`agent/src/connection.rs` — Tokio + tungstenite client, exponential reconnect backoff 1s→30s,
+offline job queuing across reconnects.
 
----
+**Short-lived agent JWTs are implemented.** Agents exchange the API key for a 15-minute JWT and
+refresh it every 12 minutes via `POST /agents/refresh-token`
+(`backend/routes/agentProvisioningR.js:15`). `POST /agents/:agentId/rotate-key` allows an admin
+to invalidate a compromised key. Coverage: `backend/tests/agentShortToken.test.js`.
 
-## Pain Point 3 — Immutable Audit Trail (SOC2/HIPAA)
+**Dispatch ACK is implemented.** The agent emits `job_ack {jobId}` on receipt; the control plane
+requeues after a 5-second timeout (`backend/services/jobExecutionRouter.js`). Coverage:
+`backend/tests/dispatchAck.test.js`.
 
-### The claim
-> "Before every execution, Axon writes an AuditLog. The fields startedAt, jobId, orgId, triggeredBy are immutable — a Mongoose pre-save hook rejects any update."
+### Remaining — the scale ceiling
 
-### What optimal actually requires
-**A Mongoose pre-save hook is application-level immutability only.** An auditor with direct MongoDB write access (a rogue DBA, a compromised DB account, a `mongosh` session) can `db.auditlogs.updateOne(...)` and modify the record with no trace. This does **not** satisfy a strict SOC2 or HIPAA tamper-evidence requirement where the auditor asks "prove this log was not modified after the fact."
-
-Optimal tamper-evidence requires:
-1. **Cryptographic hash-chaining:** each AuditLog record stores `hash: sha256(prevHash + serialized_record)`. A verifier can replay the chain and detect any gap or modification. The chain cannot be silently forged without recomputing all subsequent hashes.
-2. **WORM storage or append-only layer:** export records to a write-once object bucket (AWS S3 Object Lock, Azure Blob immutability policy) or a ledger DB (QLDB, immudb).
-3. **Periodic external anchoring:** periodically hash the chain head and publish it to an externally-observable location (a public blockchain timestamp, a signed email to the auditor's inbox) so the anchor cannot be retroactively faked.
-
-### Current implementation
-`backend/models/auditC.js` + AuditLog Mongoose model — pre-save hook immutability, write-before-execution. The approach is **correct and well-intentioned** but the immutability guarantee is only as strong as MongoDB access control.
-
-### Gap and steps to close
-1. **Add hash-chaining to AuditLog model:** `prevHash: String`, `recordHash: String`. On each insert, compute `sha256(prevHash || JSON.stringify(immutableFields))` and store it. Expose a `GET /audit/verify-chain` endpoint that replays and validates the chain.
-2. **WORM export:** add a cron job that archives AuditLog records older than 24h to Azure Blob Storage with an immutability policy.
-3. This is the **highest-value correctness upgrade** for the enterprise / SOC2 positioning. The Mongoose hook is a good first step; hash-chaining makes it defensible to a real auditor.
+Not a problem at current agent counts; becomes one beyond roughly 500 concurrent agents. The
+planned fix is the Go gateway extraction described at the end of this document.
 
 ---
 
-## Pain Point 4 — Jobs Replace Shell Access (Pre-Approved Commands)
+## Pain Point 3 — Immutable Audit Trail
 
 ### The claim
-> "Engineers don't get a shell — they get Jobs: named, pre-approved command payloads... A junior engineer can trigger 'Restart API Service.' They cannot run anything else."
+
+> "Before every execution, Axon writes an AuditLog. Immutable fields cannot be modified after
+> the fact."
 
 ### What optimal actually requires
-The control plane defines and dispatches job payloads. But **the agent executes whatever command string it receives over the WebSocket** — it does not verify that the command was defined by an authorized admin, only that the connection is authenticated. A compromised control plane or a MITM on the WebSocket can dispatch arbitrary commands.
 
-Optimal "jobs replace shell" requires:
-1. **Signed job definitions:** the control plane signs job payloads with a private key. The agent verifies the signature before execution — a tampered payload is rejected at the execution boundary.
-2. **Agent-side allowlist:** each agent has a local `allowed_commands.json` defining regex patterns or exact command strings it will execute. An out-of-policy command is rejected even if the signature is valid.
-3. **Sandboxed execution:** run commands in a container/namespace with restricted filesystem access rather than as a direct child process of the agent. The current `backend/agent/src/execution.rs` spawns a bare `sh -c <command>` — full access to whatever the agent process can touch.
-4. **Finer-grained RBAC:** current system has `admin` and `user` roles. Production needs per-job and per-agent authorization: user A can trigger Job X on Agent Y but not Job Z.
+A Mongoose `pre('save')` hook is **application-level immutability only**. Anyone with direct
+MongoDB write access — a rogue DBA, a compromised service account, a `mongosh` session — can
+`db.auditlogs.updateOne(...)` leaving no trace. That does not satisfy a SOC 2 or HIPAA
+tamper-evidence requirement where the auditor asks *"prove this record was not modified."*
 
-### Current implementation
-`agent/src/execution.rs` — `Command::new("sh").arg("-c").arg(command)`. No allowlist, no signature verification, no sandboxing. RBAC in `backend/middlewares/jwt.js` — binary admin/user split.
+Three layers are required, in increasing strength:
 
-`backend/services/dagStateManager.js` — correct DAG dependency enforcement.
+1. **Cryptographic hash-chaining** — each record stores `sha256(prevHash + serialized_record)`.
+   A verifier replays the chain and detects any gap or modification.
+2. **WORM storage** — export to a write-once medium (S3 Object Lock, Azure Blob immutability, or
+   a ledger DB such as QLDB or immudb).
+3. **External anchoring** — periodically publish the chain head somewhere externally observable,
+   so the anchor itself cannot be retroactively rewritten.
 
-### Gap and steps to close
-1. Add **HMAC-signed job dispatch**: control plane signs `{ jobId, command, agentId, nonce }` with `DISPATCH_SIGNING_KEY`; agent verifies before execution.
-2. Add an optional **allowlist** field to agent registration: `allowedCommands: ["systemctl restart *", "pg_dump *"]`. The agent checks each dispatched command against its allowlist.
-3. Expand RBAC: add per-job and per-agent authorization in a `permissions` sub-document on the Job model.
-4. Document as roadmap: container sandboxing (Docker exec / Linux namespaces) for the highest-security environments.
+### Current implementation — ✅ layer 1 closed
+
+`backend/services/auditService.js` implements SHA-256 hash chaining. Every record carries
+`prevHash` and `recordHash`; modifying any record invalidates every hash after it.
+
+- **All writes go through `createAuditRecord()`.** Calling `AuditLog.create()` directly bypasses
+  required fields and breaks the chain silently — this is a hard project invariant, not a style
+  preference.
+- **`GET /audit/verify-chain`** (`backend/routes/auditR.js:21`) replays and validates the chain,
+  reporting the first record where the hash does not match.
+- **Verification failures are alertable.** `axon_audit_chain_verification_failures_total`
+  increments on any break, so tampering surfaces as a Prometheus alert rather than waiting for
+  someone to run the endpoint manually.
+- Coverage: `backend/tests/auditChain.test.js`, `backend/tests/auditService.test.js`,
+  `backend/tests/e2e/auditCompliance.test.js`.
+
+The chain is append-only. There is no legitimate update or delete path.
+
+### Remaining — layers 2 and 3
+
+WORM export and external anchoring are **not started**. This is the last item standing between
+the current implementation and a defensible answer to a strict external auditor. Concretely:
+
+1. A scheduled job archiving records older than 24h to Azure Blob Storage with an immutability
+   policy applied.
+2. Periodic publication of the chain head to an externally-observable location.
+
+---
+
+## Pain Point 4 — Jobs Replace Shell Access
+
+### The claim
+
+> "Engineers don't get a shell — they get Jobs: named, pre-approved command payloads. A junior
+> engineer can trigger 'Restart API Service.' They cannot run anything else."
+
+### What optimal actually requires
+
+The control plane defining a payload is not sufficient if the agent executes whatever string
+arrives over an authenticated socket. A compromised control plane, or anyone who can reach the
+socket, dispatches arbitrary commands. Four layers are needed:
+
+1. **Signed job definitions** — the agent verifies a signature before execution, so a tampered
+   payload is rejected at the execution boundary rather than the transport boundary.
+2. **Agent-side allowlist** — an out-of-policy command is rejected even when the signature is
+   valid. This bounds the blast radius of a compromised signing key.
+3. **Sandboxed execution** — commands run under restricted filesystem, network, and process
+   namespaces rather than as a bare child of the agent.
+4. **Fine-grained RBAC** — beyond binary admin/user: user A may trigger Job X on Agent Y but not
+   Job Z.
+
+### Current implementation — ✅ all four closed
+
+**1. HMAC-signed dispatch.** `backend/utils/dispatchSigner.js` signs
+`{jobId, command, agentId, nonce, timestamp}` with HMAC-SHA256 under `DISPATCH_SIGNING_KEY`
+(≥32 hex chars). The agent verifies before execution. Replay is defended by a nonce set plus a
+±60-second timestamp window — a captured dispatch cannot be replayed later. Coverage:
+`backend/tests/dispatchSigning.test.js`.
+
+> The dispatch payload shape is a **wire protocol**. Changing it means shipping backend and agent
+> together, or versioning the change. Agents in the field do not upgrade in lockstep.
+
+**2. Per-agent glob allowlist.** Configured via `PATCH /agents/:agentId/permissions` and enforced
+agent-side. A command outside the allowlist is rejected even with a valid signature.
+
+**3. Sandboxed execution.** `agent/src/sandbox.rs` — three modes:
+
+| Mode | Mechanism |
+|---|---|
+| `namespace` | `unshare --user --map-root-user --mount --pid --net --fork` + BPF seccomp filter via `pre_exec`. Linux only. |
+| `docker` | `docker run --rm --network none --read-only <image>` |
+| `none` | Direct `sh -c` (or `cmd /C` on Windows) |
+
+Coverage: `backend/tests/sandboxMode.test.js` plus unit tests in `sandbox.rs`.
+
+**4. Per-resource RBAC.** `authResource` in `backend/middlewares/jwt.js` enforces per-job and
+per-agent grants, applied at `POST /jobs/runJobNow/:jobId`. Permission documents are managed via
+`PATCH /jobs/:id/permissions` and `PATCH /agents/:agentId/permissions`. Coverage:
+`backend/tests/resourceAuth.test.js`.
+
+`backend/services/dagStateManager.js` enforces DAG dependency ordering correctly.
+
+### Remaining — the sandbox default
+
+`SandboxMode::from_vars` falls through to `Self::None` when `AGENT_SANDBOX_MODE` is unset
+(`agent/src/sandbox.rs:42-56`). An operator who deploys an agent without setting it gets **no
+isolation**, with no startup warning.
+
+This is deliberate — changing the default would break agents already deployed in the field —
+but it is the highest-value remaining hardening item. Two options, neither yet implemented:
+
+1. Emit a loud startup warning when the mode resolves to `None`.
+2. Make the mode a required variable in a future agent major version, so the failure is a
+   startup error rather than a silent downgrade.
 
 ---
 
 ## Cross-Cutting Platform Gaps
 
-These apply across all four pain points.
-
-| Gap | Severity | Fix |
-|-----|----------|-----|
-| **Stale swagger.yaml** — wrong path prefix (`/users` vs `/user`), missing 10+ endpoints | Medium | Regenerate from routes using `swagger-jsdoc` or write an OpenAPI generator script |
-| **No registry push in CI** — `build` job tags images locally only, no deploy step | High | Add `az acr login` + `docker push` + `az containerapp update` to a `deploy.yml` workflow |
-| **Dev Mongo has no auth** — `docker-compose.yml` runs MongoDB without credentials | Medium | Add `MONGO_INITDB_ROOT_USERNAME/PASSWORD` in dev compose and `mongodb://user:pass@...` in MONGO_URI |
-| **No observability** — no OpenTelemetry traces, no Prometheus metrics, no log correlation beyond `requestId` | Medium | Add `@opentelemetry/sdk-node` to backend; expose `/metrics` for Prometheus scrape; trace job dispatch→execute path |
-| **Secrets only in `.env`** — no secret rotation, no Key Vault | Medium-High | Use Azure Key Vault in prod; reference secrets by name in Container Apps env |
-| **CI flakiness** — `mongodb-memory-server` downloads a binary at CI runtime (slow, firewall-sensitive) | Low-Medium | Add a `mongo:7` service container to `backend-test` job (same pattern as the Redis service already there) |
-| **Node 20 → 22 upgrade** | Low | Updated in CI fix (Task 5). Backend Dockerfile still uses `node:20-alpine` — update to `node:22-alpine` |
+| Gap | Severity | Status |
+|---|---|---|
+| Stale `swagger.yaml` — missing endpoints | Medium | ✅ Closed 2026-08-12 — all 34 live routes documented |
+| No registry push in CI | High | ✅ Closed — `.github/workflows/deploy.yml` |
+| Dev Mongo has no auth | Medium | ✅ Closed — `MONGO_INITDB_ROOT_*` in `docker-compose.yml` |
+| No observability | Medium | ✅ Closed — OTel + Prometheus + provisioned Grafana |
+| Secrets only in `.env`, no Key Vault | Medium-High | ✅ Closed — Key Vault `secretRef`, see `docs/deploy-azure.md` |
+| CI flakiness from `mongodb-memory-server` binary download | Low-Medium | ✅ Closed — `mongo:7` service container in CI |
+| Node 20 → 22 upgrade | Low | ✅ Closed |
+| Tracing instrumented but no collector in compose | Low | ⬜ Open — set `OTEL_EXPORTER_OTLP_ENDPOINT` and run Jaeger/Tempo |
+| HTTP job type has no UI form fields | Low | ⬜ Open — backend supports it, frontend does not expose it |
+| `ERR_PNPM_IGNORED_BUILDS: protobufjs` breaks `npx vitest` | Low | ⬜ Open — needs `onlyBuiltDependencies` in `pnpm-workspace.yaml` |
 
 ---
 
 ## Planned Architecture — Partial Go Extraction
 
-The highest-impact "higher tech level" upgrade targets **Pain Point 2's scale ceiling**:
+The remaining high-impact upgrade targets **Pain Point 2's scale ceiling**: extract the agent
+connection and telemetry/log-stream gateway to a Go microservice.
 
-**Extract the agent connection + telemetry/log-stream gateway to a Go microservice.**
-
-```
-                     ┌─────────────────────┐
-  Rust Agents ──ws──▶│  Go Gateway         │──Redis pub/sub──▶ Express/Socket.IO ──ws──▶ UI
-                     │  (goroutine/agent)  │
-                     │  batches telemetry  │──Redis pub/sub──▶ telemetryFlushWorker
-                     └─────────────────────┘
+```mermaid
+flowchart LR
+    AG["Rust agents"] -->|WSS :443| GW["Go gateway<br/>goroutine per agent<br/>batches telemetry"]
+    GW -->|Redis pub/sub| EXP["Express + Socket.IO"]
+    GW -->|Redis pub/sub| TF["telemetryFlushWorker"]
+    EXP -->|WSS| UI["Dashboard"]
 ```
 
 **Why Go for this path:**
-- Go goroutines are 2KB stack vs. Node's ~1MB per connection overhead. 10,000 concurrent agents = ~20MB Go vs. ~10GB Node for connection state alone.
-- Native `gorilla/websocket` handles read/write pump per-connection with no event-loop serialization.
-- `sync/atomic` and channels replace the Node-level `agentTelemetryBuffer` and `logStreamBroker` — no shared-mutable-state issues.
-- Go compiles to a static binary — easy to containerize and distribute alongside the Rust agent.
+
+- Goroutines cost ~2KB of stack versus roughly 1MB of per-connection overhead in Node. At 10,000
+  concurrent agents that is ~20MB versus ~10GB for connection state alone.
+- A read/write pump per connection avoids event-loop serialization on the fan-out path.
+- Channels and `sync/atomic` replace the Node-level `agentTelemetryBuffer` and
+  `logStreamBroker`, removing shared-mutable-state hazards.
+- Compiles to a static binary — easy to containerize and ship alongside the Rust agent.
 
 **Migration path (zero-downtime, feature-flagged):**
-1. Define the Redis pub/sub message contract: `{ agentId, jobId, stream, line, timestampMs }`.
-2. Build the Go gateway as an independent binary in `gateway/` — it accepts agent WebSocket connections, validates the `agentId + apiKey`, and publishes events to Redis.
-3. Deploy behind a feature flag: control plane routes agent handshake to Go gateway vs. Node based on an env var `AGENT_GATEWAY_URL`.
-4. Dual-run for one sprint — compare telemetry parity between old and new paths.
-5. Retire the Node path: remove `services/logStreamBroker.js`, `services/agentTelemetryBuffer.js`, `workers/telemetryFlushWorker.js`. Express/Socket.IO subscribes to Redis pub/sub exclusively.
 
-**What stays in Node:** all CRUD (jobs, agents, audit, users, org), auth, job scheduling, BullMQ workers, Socket.IO fan-out to UI clients. Go handles only the agent-facing connection layer.
+1. Define the Redis pub/sub message contract: `{ agentId, jobId, stream, line, timestampMs }`.
+2. Build the gateway as an independent binary in `gateway/`. It terminates agent WebSockets,
+   validates agent JWTs, and publishes events to Redis.
+3. Feature-flag the handshake route via `AGENT_GATEWAY_URL`.
+4. Dual-run for one sprint; compare telemetry parity across both paths.
+5. Retire the Node path — remove `services/logStreamBroker.js`,
+   `services/agentTelemetryBuffer.js`, `workers/telemetryFlushWorker.js`.
+
+**What stays in Node:** all CRUD (jobs, agents, audit, users, orgs), auth, job scheduling, BullMQ
+workers, and Socket.IO fan-out to UI clients. Go handles only the agent-facing connection layer.
+
+---
+
+## How to re-verify this document
+
+Do not trust it. Each claim above cites a file. To confirm the status of any item:
+
+```bash
+# Structure of a subsystem
+code-review-graph query file_summary <path> --repo "c:/My Project/Axon"
+
+# Test coverage for a specific claim
+cd backend && npm test -- <testfile>
+```
+
+The authoritative roadmap with per-item implementation status is
+[docs/tech-roadmap.md](tech-roadmap.md). When the two disagree, the roadmap and the source win.

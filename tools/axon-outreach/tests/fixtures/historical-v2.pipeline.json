@@ -1,0 +1,369 @@
+{
+  "agent_contracts": [
+    {
+      "acceptance_checks": [
+        "Every assertion maps to supplied evidence or an explicit inference.",
+        "The output passes exact-schema, freshness, suppression, and capability checks.",
+        "Failure is represented by a stable reason code."
+      ],
+      "backstory": "Senior B2B research analyst working inside Axon's review-only outreach boundary.",
+      "constraints": [
+        "No network, mailbox, contact resolution, credentials, scheduling, approval, or sending.",
+        "Never invent a fact, person, product capability, or evidence source.",
+        "Deterministic policy code has final authority."
+      ],
+      "goal": "Produce one auditable input for the next stage or reject the account.",
+      "input_contract": "Validated local JSON only; exact schemas; no implicit enrichment.",
+      "name": "research",
+      "output_contract": "A normalized evidence set with a fresh trigger.",
+      "purpose": "Separate supplied public facts from explicit hypotheses.",
+      "role": "B2B research analyst",
+      "task": "Validate organization evidence, timestamps, and sources."
+    },
+    {
+      "acceptance_checks": [
+        "Every assertion maps to supplied evidence or an explicit inference.",
+        "The output passes exact-schema, freshness, suppression, and capability checks.",
+        "Failure is represented by a stable reason code."
+      ],
+      "backstory": "Senior commercial qualification analyst working inside Axon's review-only outreach boundary.",
+      "constraints": [
+        "No network, mailbox, contact resolution, credentials, scheduling, approval, or sending.",
+        "Never invent a fact, person, product capability, or evidence source.",
+        "Deterministic policy code has final authority."
+      ],
+      "goal": "Produce one auditable input for the next stage or reject the account.",
+      "input_contract": "Validated local JSON only; exact schemas; no implicit enrichment.",
+      "name": "qualification",
+      "output_contract": "A validated score of at least 7/10.",
+      "purpose": "Spend review time only on accounts with a concrete safe assessment path.",
+      "role": "commercial qualification analyst",
+      "task": "Verify the five-part qualification rubric and total."
+    },
+    {
+      "acceptance_checks": [
+        "Every assertion maps to supplied evidence or an explicit inference.",
+        "The output passes exact-schema, freshness, suppression, and capability checks.",
+        "Failure is represented by a stable reason code."
+      ],
+      "backstory": "Senior solution consultant working inside Axon's review-only outreach boundary.",
+      "constraints": [
+        "No network, mailbox, contact resolution, credentials, scheduling, approval, or sending.",
+        "Never invent a fact, person, product capability, or evidence source.",
+        "Deterministic policy code has final authority."
+      ],
+      "goal": "Produce one auditable input for the next stage or reject the account.",
+      "input_contract": "Validated local JSON only; exact schemas; no implicit enrichment.",
+      "name": "use_case",
+      "output_contract": "One supported use case with a fit score.",
+      "purpose": "Select a narrow use case Axon can truthfully support.",
+      "role": "solution consultant",
+      "task": "Match evidence, owner role, and the capability ledger."
+    },
+    {
+      "acceptance_checks": [
+        "Every assertion maps to supplied evidence or an explicit inference.",
+        "The output passes exact-schema, freshness, suppression, and capability checks.",
+        "Failure is represented by a stable reason code."
+      ],
+      "backstory": "Senior enterprise copywriter working inside Axon's review-only outreach boundary.",
+      "constraints": [
+        "No network, mailbox, contact resolution, credentials, scheduling, approval, or sending.",
+        "Never invent a fact, person, product capability, or evidence source.",
+        "Deterministic policy code has final authority."
+      ],
+      "goal": "Produce one auditable input for the next stage or reject the account.",
+      "input_contract": "Validated local JSON only; exact schemas; no implicit enrichment.",
+      "name": "draft",
+      "output_contract": "A subject and body grounded in the selected use case.",
+      "purpose": "Turn verified evidence into concise, honest organization-level copy.",
+      "role": "enterprise copywriter",
+      "task": "Draft one review-only message without personal data or inflated claims."
+    },
+    {
+      "acceptance_checks": [
+        "Every assertion maps to supplied evidence or an explicit inference.",
+        "The output passes exact-schema, freshness, suppression, and capability checks.",
+        "Failure is represented by a stable reason code."
+      ],
+      "backstory": "Senior outreach quality reviewer working inside Axon's review-only outreach boundary.",
+      "constraints": [
+        "No network, mailbox, contact resolution, credentials, scheduling, approval, or sending.",
+        "Never invent a fact, person, product capability, or evidence source.",
+        "Deterministic policy code has final authority."
+      ],
+      "goal": "Produce one auditable input for the next stage or reject the account.",
+      "input_contract": "Validated local JSON only; exact schemas; no implicit enrichment.",
+      "name": "critic",
+      "output_contract": "A deterministic message-quality score and findings.",
+      "purpose": "Reject vague, long, manipulative, or unsupported messages.",
+      "role": "outreach quality reviewer",
+      "task": "Score clarity, evidence, relevance, brevity, CTA, and opt-out language."
+    },
+    {
+      "acceptance_checks": [
+        "Every assertion maps to supplied evidence or an explicit inference.",
+        "The output passes exact-schema, freshness, suppression, and capability checks.",
+        "Failure is represented by a stable reason code."
+      ],
+      "backstory": "Senior campaign release controller working inside Axon's review-only outreach boundary.",
+      "constraints": [
+        "No network, mailbox, contact resolution, credentials, scheduling, approval, or sending.",
+        "Never invent a fact, person, product capability, or evidence source.",
+        "Deterministic policy code has final authority."
+      ],
+      "goal": "Produce one auditable input for the next stage or reject the account.",
+      "input_contract": "Validated local JSON only; exact schemas; no implicit enrichment.",
+      "name": "verification",
+      "output_contract": "A validated item that can only await human approval.",
+      "purpose": "Assemble an immutable review artifact while preserving human authority.",
+      "role": "campaign release controller",
+      "task": "Bind claims to sources and build the dry-run manifest item."
+    }
+  ],
+  "agents": [
+    "research",
+    "qualification",
+    "use_case",
+    "draft",
+    "critic",
+    "verification"
+  ],
+  "batch_id": "synthetic-agent-pipeline-001",
+  "bundle_sha256": "25dea8476f86ebf99933d61bc7509c4aa6fbb9b3a9de995ad6676352490523af",
+  "capabilities": {
+    "can_access_mailbox": false,
+    "can_access_provider": false,
+    "can_approve": false,
+    "can_load_credentials": false,
+    "can_research_network": false,
+    "can_resolve_personal_contacts": false,
+    "can_schedule": false,
+    "can_send": false
+  },
+  "capability_ledger_version": "2026-09-20",
+  "decisions": [
+    {
+      "account_id": "synthetic-platform-001",
+      "reason_code": "QUALIFIED_REVIEW_ONLY",
+      "state": "AWAITING_HUMAN_APPROVAL",
+      "use_case_fit": 8,
+      "use_case_id": "reviewable-procedure-assessment"
+    }
+  ],
+  "manifest": {
+    "approval": {
+      "approval_expires_at": null,
+      "approved_at": null,
+      "approved_by": null,
+      "status": "pending"
+    },
+    "batch_id": "synthetic-agent-pipeline-001",
+    "capabilities": {
+      "can_access_mailbox": false,
+      "can_access_provider": false,
+      "can_load_credentials": false,
+      "can_send": false
+    },
+    "items": [
+      {
+        "account_id": "synthetic-platform-001",
+        "approval": {
+          "approval_expires_at": null,
+          "approved_at": null,
+          "approved_by": null,
+          "status": "pending"
+        },
+        "capability_claims": [
+          "Axon maps one approved non-production procedure to an exact target and returns a reviewable evidence bundle."
+        ],
+        "channel": "organization_contact_form",
+        "claim_ledger": [
+          {
+            "kind": "verified_fact",
+            "source_url": "https://example.invalid/services/platform-migration",
+            "text": "Synthetic Platform describes a recurring platform migration procedure."
+          },
+          {
+            "kind": "verified_fact",
+            "source_url": "https://example.invalid/reports/migration-handoff",
+            "text": "Synthetic Platform reports that a migration handoff failed in a test environment."
+          },
+          {
+            "kind": "verified_fact",
+            "source_url": "https://example.invalid/about/platform-team",
+            "text": "Synthetic Platform names platform engineering as the owner of migration procedure reviews."
+          },
+          {
+            "kind": "verified_fact",
+            "source_url": "https://example.invalid/pilots/migration",
+            "text": "Synthetic Platform invites review of a non-production migration procedure."
+          },
+          {
+            "kind": "inference",
+            "source_url": "https://example.invalid/services/platform-migration",
+            "text": "repeated handoffs may make execution evidence harder to review"
+          }
+        ],
+        "domain": "example.invalid",
+        "draft": {
+          "body": "I saw that Synthetic Platform describes a recurring platform migration procedure..\n\nThat may create repeated handoffs may make execution evidence harder to review.\n\nAxon maps one approved non-production procedure to an exact target and returns a reviewable evidence bundle.\n\nWould a 20-minute fit check be useful?\n\nIf this is not relevant, tell me and I will not follow up.",
+          "subject": "Synthetic Platform Ltd: review one recurring procedure"
+        },
+        "entity_type": "Limited company",
+        "idempotency_key": "3940c63a59f411ad3bc21b2d1c8f81ce71cfff3eee0f5cf35e5eabe09ae3bf84",
+        "inferences": [
+          "repeated handoffs may make execution evidence harder to review"
+        ],
+        "jurisdiction": "Test jurisdiction",
+        "message_quality": {
+          "checks": {
+            "body_length": true,
+            "capability_exact": true,
+            "opt_out": true,
+            "single_question": true,
+            "subject_length": true
+          },
+          "findings": [],
+          "score": 10
+        },
+        "message_version": "v1",
+        "observed_at": "2026-09-19T09:00:00+05:30",
+        "organization": "Synthetic Platform Ltd",
+        "pipeline_stages": [
+          "research",
+          "qualification",
+          "use_case",
+          "draft",
+          "critic",
+          "verification"
+        ],
+        "pipeline_state": "AWAITING_HUMAN_APPROVAL",
+        "planned_at": "2026-09-23T15:00:00+05:30",
+        "recipient_route": {
+          "role": "platform engineering owner",
+          "route_type": "public organization form"
+        },
+        "research_provenance": [
+          {
+            "evidence_id": "public-service-update",
+            "fact_text": "Synthetic Platform describes a recurring platform migration procedure.",
+            "fact_type": "repeated_procedure",
+            "source_capture": {
+              "excerpt": "Synthetic Platform describes a recurring platform migration procedure.",
+              "excerpt_sha256": "448ead2e7f5458053e53540b00269d9c81d921e49e61238cf8c5b8af59c010e7",
+              "published_at": "2026-09-18T08:00:00+05:30",
+              "retrieved_at": "2026-09-19T09:00:00+05:30",
+              "snapshot_sha256": "be8ce837561b6ccff6f954bc0c651381d805643a95fbd88fc5fe1957ddded79e",
+              "source_type": "first_party_site",
+              "source_url": "https://example.invalid/services/platform-migration"
+            },
+            "source_url": "https://example.invalid/services/platform-migration"
+          },
+          {
+            "evidence_id": "public-incident",
+            "fact_text": "Synthetic Platform reports that a migration handoff failed in a test environment.",
+            "fact_type": "observed_pain",
+            "source_capture": {
+              "excerpt": "Synthetic Platform reports that a migration handoff failed in a test environment.",
+              "excerpt_sha256": "5c4d3b344bd5e24854048a2a5f87b924ee64bdbc609f6d3e1374261169201bcd",
+              "published_at": "2026-09-17T08:00:00+05:30",
+              "retrieved_at": "2026-09-19T09:00:00+05:30",
+              "snapshot_sha256": "dc3ca4d138d686bc629258fd2a1bf0edd529d0a2c7ea307fd327f3670500b52f",
+              "source_type": "first_party_site",
+              "source_url": "https://example.invalid/reports/migration-handoff"
+            },
+            "source_url": "https://example.invalid/reports/migration-handoff"
+          },
+          {
+            "evidence_id": "public-owner",
+            "fact_text": "Synthetic Platform names platform engineering as the owner of migration procedure reviews.",
+            "fact_type": "buyer_or_budget",
+            "source_capture": {
+              "excerpt": "Synthetic Platform names platform engineering as the owner of migration procedure reviews.",
+              "excerpt_sha256": "b63ffe44b18dfb58f7764a4aa73555c6dddcd705b29b6496ba048fd8e0dd8b69",
+              "published_at": "2026-09-16T08:00:00+05:30",
+              "retrieved_at": "2026-09-19T09:00:00+05:30",
+              "snapshot_sha256": "70194c1a0177644dcda8d382854ea4b493e22d458e40e7157d77280ab8ccc02e",
+              "source_type": "first_party_site",
+              "source_url": "https://example.invalid/about/platform-team"
+            },
+            "source_url": "https://example.invalid/about/platform-team"
+          },
+          {
+            "evidence_id": "public-assessment",
+            "fact_text": "Synthetic Platform invites review of a non-production migration procedure.",
+            "fact_type": "safe_assessment_path",
+            "source_capture": {
+              "excerpt": "Synthetic Platform invites review of a non-production migration procedure.",
+              "excerpt_sha256": "a6ba0afb0091057c89d46d7689d2ff5dfe93045e15e97ab11fa8d7f3682b5bf4",
+              "published_at": "2026-09-18T08:00:00+05:30",
+              "retrieved_at": "2026-09-19T09:00:00+05:30",
+              "snapshot_sha256": "3d72f5290d449c8d94bb420ca8d690a96b0e314fecd8a3d58bb80e1123d5c2ae",
+              "source_type": "first_party_site",
+              "source_url": "https://example.invalid/pilots/migration"
+            },
+            "source_url": "https://example.invalid/pilots/migration"
+          }
+        ],
+        "score": {
+          "components": {
+            "buyer_access_or_budget": 1,
+            "cost_or_failure_pain": 2,
+            "current_alternative_gap": 0,
+            "repeated_procedure": 2,
+            "safe_assessment_path": 2
+          },
+          "rubric_version": "2026-09-12",
+          "total": 7
+        },
+        "selected_use_case": {
+          "capability_id": "assessment_evidence_v1",
+          "fit_score": 8,
+          "owner_roles": [
+            "platform engineering owner",
+            "operations owner"
+          ],
+          "problem_hypothesis": "repeated handoffs may make execution evidence harder to review",
+          "supporting_evidence_ids": [
+            "public-service-update",
+            "public-incident",
+            "public-owner",
+            "public-assessment",
+            "review-hypothesis"
+          ],
+          "title": "Review one recurring migration procedure",
+          "use_case_id": "reviewable-procedure-assessment"
+        },
+        "source_urls": [
+          "https://example.invalid/services/platform-migration",
+          "https://example.invalid/reports/migration-handoff",
+          "https://example.invalid/about/platform-team",
+          "https://example.invalid/pilots/migration"
+        ],
+        "state": "dry_run",
+        "suppression": {
+          "checked": true,
+          "checked_at": "2026-09-20T09:30:00+05:30",
+          "reason": null,
+          "status": "clear"
+        },
+        "verified_facts": [
+          "Synthetic Platform describes a recurring platform migration procedure.",
+          "Synthetic Platform reports that a migration handoff failed in a test environment.",
+          "Synthetic Platform names platform engineering as the owner of migration procedure reviews.",
+          "Synthetic Platform invites review of a non-production migration procedure."
+        ]
+      }
+    ],
+    "manifest_sha256": "fa88cd8a82757ac65950a04b4d9fc0ddeabe81d45bb76c544cbbaf4bcf6d25c1",
+    "mode": "dry_run",
+    "prepared_at": "2026-09-20T10:00:00+05:30",
+    "profile": "axon_b2b",
+    "schema_version": 1
+  },
+  "mode": "dry_run",
+  "pipeline_version": 2,
+  "prepared_at": "2026-09-20T10:00:00+05:30",
+  "profile": "axon_b2b"
+}

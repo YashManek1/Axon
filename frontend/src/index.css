@@ -1,24 +1,68 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Tailwind v4 theme. These generate real utilities: bg-surface, text-ink-2,
+   border-subtle, font-mono, rounded-md, and the responsive variants.
+   The :root block below is kept during migration so un-migrated components
+   keep rendering; delete it once nothing references var(--*) any more.
+   --------------------------------------------------------------------------- */
+@theme {
+  --color-bg:            #101216;
+  --color-surface:       #181b20;
+  --color-surface-2:     #20242b;
+  --color-edge:          #303640;
+  --color-edge-subtle:   #242a32;
+
+  --color-primary:       #31589f;
+  --color-primary-hover: #27477f;
+
+  --color-success:       #10b981;
+  --color-warning:       #f59e0b;
+  --color-danger:        #ef4444;
+  --color-info:          #3b82f6;
+
+  --color-ink:           #ebedf0;
+  --color-ink-2:         #adb5c0;
+  --color-muted:         #87919e;
+  --color-disabled:      #4b535f;
+  --color-label:         #9aa3ae;
+
+  --color-term-bg:       #020810;
+  --color-term-err:      #f87171;
+
+  --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  --breakpoint-xs: 26.25rem;  /* 420px  - large phones            */
+  --breakpoint-sm: 40rem;     /* 640px                            */
+  --breakpoint-md: 48rem;     /* 768px  - tablet                  */
+  --breakpoint-lg: 64rem;     /* 1024px - small laptop            */
+  --breakpoint-xl: 80rem;     /* 1280px - 3-col layouts start here */
+  --breakpoint-2xl: 96rem;    /* 1536px                           */
+}
+
 :root {
-  --bg:            #060d1a;
-  --surface:       #0d1829;
-  --surface-2:     #111f35;
-  --border:        #1a2844;
-  --border-subtle: #0f1e34;
-  --primary:       #2563EB;
-  --primary-hover: #1d4ed8;
-  --primary-glow:  rgba(37, 99, 235, 0.12);
+  --bg:            #101216;
+  --surface:       #181b20;
+  --surface-2:     #20242b;
+  --border:        #303640;
+  --border-subtle: #242a32;
+  --primary:       #31589f;
+  --primary-hover: #27477f;
+  --primary-glow:  rgba(154,183,255,0.25);
   --success:       #10b981;
   --warning:       #f59e0b;
   --danger:        #ef4444;
   --info:          #3b82f6;
-  --text:          #e2e8f0;
-  --text-2:        #94a3b8;
-  --muted:         #475569;
-  --disabled:      #334155;
-  --label-2:       #64748b;
+  --text:          #ebedf0;
+  --text-2:        #adb5c0;
+  --muted:         #87919e;
+  --disabled:      #4b535f;
+  --label-2:       #9aa3ae;
   --term-bg:       #020810;
   --term-err:      #f87171;
   --font-ui:       'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -40,7 +84,15 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-::selection { background: rgba(37,99,235,0.3); }
+::selection { background: rgba(115,150,223,0.3); }
+
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible { outline: 2px solid var(--focus) !important; outline-offset: 3px; }
 
 a { color: inherit; text-decoration: none; }
 
@@ -112,6 +164,7 @@ a { color: inherit; text-decoration: none; }
 .dot.busy    { background: var(--warning); animation: pulse-amber 2s infinite; }
 .dot.offline { background: var(--muted); }
 .dot.live    { background: var(--info);    animation: pulse-blue 1.6s infinite; }
+.dot.neutral { background: var(--muted); }
 
 @keyframes pulse-green {
   0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.4); }
@@ -186,7 +239,7 @@ a { color: inherit; text-decoration: none; }
 }
 .textarea { height: auto; padding: 10px 12px; line-height: 1.55; resize: vertical; }
 .input:focus, .textarea:focus, .select:focus {
-  border-color: var(--primary);
+  border-color: var(--focus);
   box-shadow: 0 0 0 3px var(--primary-glow);
 }
 .input.error, .textarea.error { border-color: var(--danger); }
@@ -498,23 +551,24 @@ footer.landing { border-top: 1px solid var(--border); padding: 48px 0 64px; }
   --surface:       #ffffff;
   --surface-2:     #eef2f8;
   --surface-3:     #e4ecf5;
-  --border:        #ccd6e4;
-  --border-subtle: #d8e1ed;
-  --border-strong: #b0c4d8;
+  --border:        #94a3b8;
+  --border-subtle: #cbd5e1;
+  --border-strong: #64748b;
   --text:          #0f172a;
-  --text-2:        #374151;
-  --muted:         #9ca3af;
-  --disabled:      #e2e8f0;
-  --label-2:       #6b7280;
+  --text-2:        #334155;
+  --muted:         #596579;
+  --disabled:      #94a3b8;
+  --label-2:       #4b5563;
+  --focus:         #1d4ed8;
   --term-bg:       #0f172a;
-  --term-err:      #f87171;
-  --success:       #059669;
-  --warning:       #d97706;
-  --danger:        #dc2626;
-  --info:          #2563eb;
-  --ok:            #059669;  --ok-dim:   rgba(5,150,105,0.12);
-  --warn:          #d97706;  --warn-dim: rgba(217,119,6,0.12);
-  --err:           #dc2626;  --err-dim:  rgba(220,38,38,0.12);
+  --term-err:      #b91c1c;
+  --success:       #047857;
+  --warning:       #a64b00;
+  --danger:        #b91c1c;
+  --info:          #1d4ed8;
+  --ok:            #047857;  --ok-dim:   rgba(4,120,87,0.12);
+  --warn:          #a64b00;  --warn-dim: rgba(166,75,0,0.12);
+  --err:           #b91c1c;  --err-dim:  rgba(185,28,28,0.12);
   --shadow:    0 1px 2px rgba(15,23,42,0.06), 0 10px 30px -16px rgba(15,23,42,0.18);
   --shadow-lg: 0 28px 70px -28px rgba(15,23,42,0.25);
 }
@@ -536,20 +590,46 @@ body {
    DESIGN TOKENS — ALIASES (app pages use --accent, --ok, etc.)
    ============================================================ */
 :root {
-  --accent:      #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-press: #1e40af;
+  --accent:      #7aa2f7;
+  --accent-hover: #a8c1f7;
+  --accent-press: #5f83d7;
   --accent-on:   #ffffff;
-  --accent-dim:  rgba(37,99,235,0.12);
-  --accent-line: rgba(37,99,235,0.34);
+  --accent-dim:  rgba(122,162,247,0.16);
+  --accent-line: rgba(122,162,247,0.52);
   --ok:          #10b981;  --ok-dim:   rgba(16,185,129,0.13);
   --warn:        #f59e0b;  --warn-dim: rgba(245,158,11,0.13);
   --err:         #ef4444;  --err-dim:  rgba(239,68,68,0.13);
   --info-dim:    rgba(59,130,246,0.13);
-  --text-muted:  #94a3b8;
-  --text-faint:  #475569;
-  --border-strong: #243352;
-  --surface-3:   #1a2540;
+  --text-muted:  #b6c2d3;
+  --text-faint:  #91a0b5;
+  --border-strong: #667085;
+  --surface-3:   #2a3038;
+  --focus:       #9ab7ff;
+  --terminal-text: #e5e7eb;
+  --terminal-muted: #a8b2c1;
+  --terminal-success: #6ee7b7;
+  --terminal-warning: #fcd34d;
+  --terminal-danger: #fca5a5;
+  --terminal-info: #93c5fd;
+
+  /* Tailwind semantic utilities follow the active legacy theme tokens. */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-edge: var(--border);
+  --color-edge-subtle: var(--border-subtle);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-ink: var(--text);
+  --color-ink-2: var(--text-2);
+  --color-muted: var(--muted);
+  --color-label: var(--label-2);
+  --color-disabled: var(--disabled);
+  --color-term-bg: var(--term-bg);
   --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 28px -12px rgba(0,0,0,.7);
   --shadow-lg:   0 24px 70px -24px rgba(0,0,0,.85);
   --ease:        cubic-bezier(.22,.61,.36,1);
@@ -566,6 +646,38 @@ body {
   --t-h3:        20px;
   --font-mono:   'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
+
+[data-theme="light"] {
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --accent-press: #1e3a8a;
+  --accent-dim: rgba(29,78,216,0.12);
+  --accent-line: rgba(29,78,216,0.38);
+  --text-muted: #475569;
+  --text-faint: #64748b;
+}
+
+/* Terminal/evidence surfaces stay legible when the surrounding page is light. */
+.bg-term-bg { color: var(--terminal-text); }
+.bg-term-bg.text-ink,
+.bg-term-bg .text-ink { color: var(--terminal-text); }
+.bg-term-bg.text-ink-2,
+.bg-term-bg .text-ink-2,
+.bg-term-bg.text-muted,
+.bg-term-bg .text-muted,
+.bg-term-bg .text-label { color: var(--terminal-muted); }
+.bg-term-bg.text-primary,
+.bg-term-bg .text-primary { color: var(--terminal-info); }
+.bg-term-bg.text-success,
+.bg-term-bg .text-success { color: var(--terminal-success); }
+.bg-term-bg.text-warning,
+.bg-term-bg .text-warning { color: var(--terminal-warning); }
+.bg-term-bg.text-danger,
+.bg-term-bg .text-danger { color: var(--terminal-danger); }
+
+/* Dark links retain a readable accent while light links use the active accent token. */
+:root:not([data-theme="light"]) .text-primary { color: var(--accent); }
+:root:not([data-theme="light"]) .hover\:text-primary-hover:hover { color: var(--accent-hover); }
 
 /* ============================================================
    LAYOUT HELPERS
@@ -640,7 +752,7 @@ body {
 .term {
   background: var(--term-bg); border: 1px solid var(--border);
   border-radius: var(--r-md); font-family: var(--font-mono);
-  font-size: 13px; line-height: 1.7; color: #d6dae0; overflow: hidden;
+  font-size: 13px; line-height: 1.7; color: var(--terminal-text); overflow: hidden;
 }
 .term-head {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
@@ -648,14 +760,14 @@ body {
 }
 .term-body { padding: 12px 14px; }
 .term-line { display: flex; gap: 12px; white-space: pre-wrap; word-break: break-word; }
-.term-line .ts  { color: #5a6675; flex: none; }
+.term-line .ts  { color: var(--terminal-muted); flex: none; }
 .term-line .lvl { flex: none; width: 44px; }
-.term .c-dim  { color: #6b7585; }
-.term .c-ok   { color: var(--ok); }
-.term .c-warn { color: var(--warn); }
-.term .c-err  { color: var(--err); }
-.term .c-acc  { color: var(--accent); }
-.term .c-info { color: var(--info); }
+.term .c-dim  { color: var(--terminal-muted); }
+.term .c-ok   { color: var(--terminal-success); }
+.term .c-warn { color: var(--terminal-warning); }
+.term .c-err  { color: var(--terminal-danger); }
+.term .c-acc  { color: var(--terminal-info); }
+.term .c-info { color: var(--terminal-info); }
 
 /* ============================================================
    APP SHELL  (dashboard layout)

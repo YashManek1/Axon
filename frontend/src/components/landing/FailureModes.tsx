@@ -17,31 +17,39 @@ const failureModes = [
   {
     dotClass: "online",
     title: "Two servers enqueue the same job",
-    body: "BullMQ uses an atomic Redis SETNX check against the job ID. Only one enqueue succeeds. The second is dropped at the Redis layer before it reaches a worker. This is not application logic — it is queue semantics enforced by Redis atomicity.",
+    body: "Delivery is at-least-once, not exactly-once — no distributed system can honestly promise the latter. BullMQ deduplicates on a deterministic job ID, so a second enqueue while the first is still pending is dropped at the queue layer. If a duplicate does reach a worker, the fencing token makes the execution a no-op. The guarantee is that the side effect happens once, not that the message arrives once.",
   },
 ];
 
 export default function FailureModes() {
   return (
-    <section className="band" id="failure">
-      <div className="wrap">
-        <div className="sec-head">
-          <h2>What happens when things go wrong.</h2>
-          <p>We designed Axon assuming the network drops, processes die, and control planes become unreachable. Here's exactly how it behaves.</p>
+    <section className="py-24 border-t border-edge-subtle" id="failure">
+      <div className="max-w-[1200px] mx-auto px-8">
+        <div className="mb-12 max-w-2xl">
+          <h2 className="text-4xl font-bold text-ink tracking-tight mb-3 leading-tight">What happens when things go wrong.</h2>
+          <p className="text-base text-ink-2 leading-relaxed">We designed Axon assuming the network drops, processes die, and control planes become unreachable. Here's exactly how it behaves.</p>
         </div>
-        <div className="fmgrid">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-7">
           {failureModes.map((mode) => (
-            <div className="fm" key={mode.title}>
-              <h3>
-                <span className={"dot " + mode.dotClass} />
+            <div className="bg-surface border border-edge rounded-md p-6.5 flex flex-col" key={mode.title}>
+              <h3 className="text-base font-semibold text-ink mb-3 flex items-center gap-2.5">
+                <span
+                  className={`w-2 h-2 rounded-full flex-shrink-0 inline-block ${
+                    mode.dotClass === "online"
+                      ? "bg-success animate-pulse"
+                      : mode.dotClass === "busy"
+                      ? "bg-warning animate-pulse"
+                      : "bg-muted"
+                  }`}
+                />
                 {mode.title}
               </h3>
-              <p>{mode.body}</p>
+              <p className="text-sm text-ink-2 leading-relaxed">{mode.body}</p>
             </div>
           ))}
         </div>
-        <div className="callout" style={{ borderLeftColor: "var(--text-2)" }}>
-          <p>Axon does not claim to be bug-free. It claims to fail predictably, surface failures clearly, and preserve a record of what happened. Your post-mortem will have answers.</p>
+        <div className="bg-surface border border-l-2 border-l-ink-2 border-edge rounded-md p-6">
+          <p className="text-base text-ink leading-relaxed">Axon does not claim to be bug-free. It claims to fail predictably, surface failures clearly, and preserve a record of what happened. Your post-mortem will have answers.</p>
         </div>
       </div>
     </section>

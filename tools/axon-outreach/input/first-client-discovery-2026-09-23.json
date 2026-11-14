@@ -1,0 +1,76 @@
+{
+  "accounts": [
+    {
+      "account_id": "dailydeploy",
+      "domain": "dailydeploy.in",
+      "exclusions": [],
+      "facts": [
+        {
+          "evidence_id": "dailydeploy-site-1",
+          "source_capture": {
+            "excerpt": "DailyDeploy handles cloud, Kubernetes, and CI/CD so your team can focus on the product.",
+            "excerpt_sha256": "11dc69fbff718444447e95a56536bb271693cd16eaa91442e579232b1c55cfb7",
+            "published_at": null,
+            "retrieved_at": "2026-09-23T14:59:32+00:00",
+            "snapshot_sha256": "11dc69fbff718444447e95a56536bb271693cd16eaa91442e579232b1c55cfb7",
+            "source_type": "first_party_site",
+            "source_url": "https://dailydeploy.in/"
+          },
+          "text": "DailyDeploy handles cloud, Kubernetes, and CI/CD so your team can focus on the product."
+        }
+      ],
+      "organization": "DailyDeploy",
+      "role_category": "Founder / infrastructure lead",
+      "workflow_label": "infrastructure delivery"
+    },
+    {
+      "account_id": "ixmops",
+      "domain": "ixmops.com",
+      "exclusions": [],
+      "facts": [
+        {
+          "evidence_id": "ixmops-site-1",
+          "source_capture": {
+            "excerpt": "Ongoing infrastructure maintenance, incident support, technical operations, and engineering retainers you can rely on.",
+            "excerpt_sha256": "5d354aba8403101814e812bcfb9131dde289e3f21f15a02f9790eee20ecb4bcb",
+            "published_at": null,
+            "retrieved_at": "2026-09-23T14:59:32+00:00",
+            "snapshot_sha256": "5d354aba8403101814e812bcfb9131dde289e3f21f15a02f9790eee20ecb4bcb",
+            "source_type": "first_party_site",
+            "source_url": "https://ixmops.com/"
+          },
+          "text": "Ongoing infrastructure maintenance, incident support, technical operations, and engineering retainers you can rely on."
+        }
+      ],
+      "organization": "ixmops",
+      "role_category": "Founder / operations lead",
+      "workflow_label": "platform support"
+    },
+    {
+      "account_id": "antops",
+      "domain": "antops.co.in",
+      "exclusions": [],
+      "facts": [
+        {
+          "evidence_id": "antops-site-1",
+          "source_capture": {
+            "excerpt": "Server operations & patch planning",
+            "excerpt_sha256": "5b8eb4df68173dd1537925a0fce704cd1d5110af83686084fa9e92ee96b02057",
+            "published_at": null,
+            "retrieved_at": "2026-09-23T14:59:32+00:00",
+            "snapshot_sha256": "5b8eb4df68173dd1537925a0fce704cd1d5110af83686084fa9e92ee96b02057",
+            "source_type": "first_party_site",
+            "source_url": "https://www.antops.co.in/"
+          },
+          "text": "Server operations & patch planning"
+        }
+      ],
+      "organization": "ANTOPS",
+      "role_category": "Founder / service delivery lead",
+      "workflow_label": "managed operations"
+    }
+  ],
+  "batch_id": "first-client-discovery-2026-09-23",
+  "prepared_at": "2026-09-23T14:59:32+00:00",
+  "schema_version": 1
+}

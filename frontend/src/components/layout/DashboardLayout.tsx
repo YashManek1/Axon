@@ -2,12 +2,13 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import {
   Activity, Server, Play, BookOpen, FileText, Terminal,
-  Search, Bell, Sun, Moon, Menu, LogOut, ShieldCheck,
+  Sun, Moon, Menu, LogOut, ShieldCheck, Settings,
 } from "lucide-react";
 import { useAuthStore } from "../../stores/authStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { authAPI } from "../../services/api";
 import { toast } from "../../stores/toastStore";
+import AxonBrand from "../brand/AxonBrand";
 
 interface NavItem {
   path: string;
@@ -24,8 +25,8 @@ function buildNavGroups(isAdmin: boolean): { label: string | null; items: NavIte
     {
       label: "Fleet",
       items: [
-        { path: "/dashboard/agents",   label: "Agents",   icon: <Server   size={16} /> },
-        { path: "/dashboard/jobs",     label: "Jobs",     icon: <Play     size={16} /> },
+        { path: "/dashboard/agents",   label: "Servers",    icon: <Server   size={16} /> },
+        { path: "/dashboard/jobs",     label: "Operations", icon: <Play     size={16} /> },
         { path: "/dashboard/runbooks", label: "Runbooks", icon: <BookOpen size={16} /> },
       ],
     },
@@ -41,7 +42,10 @@ function buildNavGroups(isAdmin: boolean): { label: string | null; items: NavIte
   if (isAdmin) {
     groups.push({
       label: "Admin",
-      items: [{ path: "/dashboard/admin", label: "Analytics", icon: <ShieldCheck size={16} /> }],
+      items: [
+        { path: "/dashboard/admin",    label: "Analytics", icon: <ShieldCheck size={16} /> },
+        { path: "/dashboard/settings", label: "Settings",  icon: <Settings    size={16} /> },
+      ],
     });
   }
 
@@ -50,12 +54,13 @@ function buildNavGroups(isAdmin: boolean): { label: string | null; items: NavIte
 
 const pageTitles: Record<string, string> = {
   overview: "Overview",
-  agents:   "Agents",
-  jobs:     "Jobs",
+  agents:   "Servers",
+  jobs:     "Operations",
   runbooks: "Runbooks",
   audit:    "Audit Log",
   live:     "Live",
   admin:    "Admin Analytics",
+  settings: "Settings",
 };
 
 export default function DashboardLayout() {
@@ -78,35 +83,50 @@ export default function DashboardLayout() {
   };
 
   return (
-    <div className="app">
+    <div className="flex min-h-screen bg-bg">
       {sidebarOpen && (
-        <div className="scrim show" onClick={() => setSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 bg-black/50 z-55 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
       )}
 
-      <aside className={"side" + (sidebarOpen ? " open" : "")}>
-        <div className="side-head">
-          <div className="org-switch">
-            <span className="av">{initials[0]}</span>
-            <span>
-              <span className="nm">{user?.username || "Axon"}</span>
-              <span className="sub">control plane</span>
+      <aside className={`w-58 border-r border-edge bg-surface flex flex-col fixed left-0 top-0 h-screen transition-transform lg:relative lg:sticky lg:w-58 lg:shrink-0 z-60 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
+        <div className="px-4 pt-4 pb-3.5 border-b border-edge flex items-center gap-2.5">
+          <div className="flex items-center gap-2 flex-1 px-2 py-1.75 rounded-sm border border-edge bg-surface-2">
+            <span className="w-6 h-6 rounded bg-primary flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
+              {initials[0]}
+            </span>
+            <span className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold leading-tight text-ink truncate">{user?.username || "Axon"}</span>
+              <span className="text-xs text-label">control plane</span>
             </span>
           </div>
         </div>
 
-        <nav className="side-nav">
+        <nav className="px-2.5 py-2.5 flex flex-col gap-px flex-1 overflow-y-auto">
           {navGroups.map((group) => (
             <div key={group.label ?? "_top"}>
-              {group.label && <div className="nav-group">{group.label}</div>}
+              {group.label && (
+                <div className="px-2.5 pt-3 pb-1.25 font-mono text-xs font-semibold tracking-widest uppercase text-muted">
+                  {group.label}
+                </div>
+              )}
               {group.items.map((item) => {
                 const active = location.pathname.startsWith(item.path);
                 return (
                   <button
                     key={item.path}
-                    className={"nav-item" + (active ? " active" : "")}
-                    onClick={() => { navigate(item.path); setSidebarOpen(false); }}
+                    className={`flex items-center gap-2.5 px-2.5 py-2 rounded-sm text-sm font-medium transition-colors border-none bg-transparent w-full text-left ${
+                      active
+                        ? "bg-accent/10 text-primary"
+                        : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+                    }`}
+                  onClick={() => { navigate(item.path); setSidebarOpen(false); }}
+                  aria-current={active ? "page" : undefined}
                   >
-                    {item.icon}
+                    <span className="w-4 h-4 flex-shrink-0">{item.icon}</span>
                     <span>{item.label}</span>
                   </button>
                 );
@@ -115,68 +135,52 @@ export default function DashboardLayout() {
           ))}
         </nav>
 
-        <div className="side-foot">
-          <div
-            className="row gap-2"
-            style={{ padding: "0 2px 10px", fontSize: "var(--t-xs)", color: "var(--text-faint)" }}
+        <div className="mt-auto px-3 pb-3 border-t border-edge">
+          <button
+            onClick={handleLogout}
+            title="Sign out"
+            className="flex items-center gap-2.5 px-2 py-1.75 rounded-sm transition-colors cursor-pointer hover:bg-surface-2 w-full"
           >
-            <span className="live-dot" />
-            <span className="mono">control plane · v1</span>
-          </div>
-          <div className="user-chip" onClick={handleLogout} title="Sign out">
-            <span className="av">{initials}</span>
-            <span style={{ flex: 1 }}>
-              <span className="nm">{user?.username}</span>
-              <span className="sub">{user?.role}</span>
+            <span className="w-7 h-7 rounded-full bg-surface-2 border border-strong flex items-center justify-center text-xs font-semibold flex-shrink-0 text-ink">
+              {initials}
             </span>
-            <LogOut size={14} style={{ color: "var(--text-faint)" }} />
-          </div>
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-medium leading-tight text-ink truncate">{user?.username}</span>
+              <span className="block text-xs text-muted">{user?.role}</span>
+            </span>
+            <LogOut size={14} className="text-muted flex-shrink-0" />
+          </button>
         </div>
       </aside>
 
-      <div className="app-main">
-        <div className="topbar">
+      <div className="flex flex-1 flex-col min-w-0">
+        <div className="sticky top-0 z-20 flex items-center gap-3.5 px-5.5 h-14 border-b border-edge bg-opacity-88 backdrop-blur">
           <button
-            className="btn btn-ghost btn-sm menu-btn"
-            style={{ display: "none" }}
+            className="lg:hidden inline-flex items-center justify-center w-8 h-8 rounded-sm text-ink-2 hover:text-ink hover:bg-surface-2 transition-colors"
+            aria-label="Open sidebar"
             onClick={() => setSidebarOpen(true)}
           >
             <Menu size={18} />
           </button>
 
-          <div className="crumb">
-            <span className="root">Axon</span>
-            <span className="sep">/</span>
-            <span className="here">{pageTitle}</span>
+          <div className="flex items-center gap-2 text-sm min-w-0">
+            <AxonBrand className="hidden xs:inline-flex text-ink-2" />
+            <span className="text-muted hidden xs:inline">/</span>
+            <span className="font-semibold text-ink truncate">{pageTitle}</span>
           </div>
 
-          <span className="grow" />
-
-          <div className="searchbar">
-            <Search size={14} />
-            <span>Search agents, jobs, audit…</span>
-            <span className="grow" />
-            <span className="kbd">⌘K</span>
-          </div>
-
-          <div className="health">
-            <span className="live-dot" />
-            operational
-          </div>
+          <span className="flex-1" />
 
           <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => toast.info("Notifications", "No new notifications")}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-sm text-ink-2 hover:text-ink hover:bg-surface-2 transition-colors"
+            aria-label={theme === "dark" ? "Light mode" : "Dark mode"}
+            onClick={toggle}
           >
-            <Bell size={16} />
-          </button>
-
-          <button className="btn btn-ghost btn-sm" onClick={toggle}>
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
         </div>
 
-        <div className="app-content">
+        <div className="flex-1 px-5.5 py-6 max-w-5xl w-full">
           <Outlet />
         </div>
       </div>

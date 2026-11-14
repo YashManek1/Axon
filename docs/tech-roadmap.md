@@ -30,7 +30,7 @@
 | 5 | CI registry push + deploy workflow; Dockerfile Node 20→22 | Cross-cutting | 🟠 High | M | 2 |
 | 6 | Dev Mongo auth + prod secrets via Key Vault | Cross-cutting | 🟡 Medium-High | S–M | 2 |
 | 7 | Mongo service container in CI (remove mongodb-memory-server flakiness) | Cross-cutting | 🟡 Medium | S | 2 |
-| 8 | OpenTelemetry traces + Prometheus `/metrics` | Cross-cutting | 🟡 Medium | M | 2 |
+| 8 | OpenTelemetry traces + Prometheus `/metrics` | Cross-cutting | ✅ Done | — | — |
 | 9 | Swagger accuracy | Cross-cutting | ✅ Done | — | — |
 | 10 | Short-lived signed agent tokens | PP2 | 🟠 High | L | 3 |
 | 11 | Per-job / per-agent RBAC | PP4 | 🟡 Medium | L | 3 |
@@ -274,36 +274,54 @@ Additionally there is no cryptographic linkage between records. A rogue DBA can 
 
 ---
 
-### Item 8 — OpenTelemetry Traces + Prometheus `/metrics`
+### Item 8 — OpenTelemetry Traces + Prometheus `/metrics` ✅ Done
 
-**Severity:** 🟡 Medium — no distributed traces, no metrics beyond pino logs + `requestId`
+**Status:** Completed 2026-08-12
 
-#### Problem
+**Implementation:**
+- `backend/instrumentation.js` initialises OTEL SDK with HTTP, MongoDB, and ioredis auto-instrumentation.
+- `GET /admin/metrics` (admin-auth) returns Prometheus metrics via `prom-client`.
+- `GET /admin/metrics/prometheus` (bearer token auth via `PROMETHEUS_BEARER_TOKEN`) allows Prometheus to scrape metrics without admin JWT.
+- Key metrics: `axon_job_dispatch_duration_seconds`, `axon_job_status_total`, `axon_agent_connected`.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` environment variables control trace export (no-op if unset).
+- Docker Compose includes Prometheus (port 127.0.0.1:9090) and Grafana (port 127.0.0.1:3001) for dev observability.
 
-No `@opentelemetry/*` dependency exists. No `prom-client`, no `/metrics` endpoint. The async dispatch → agent → result path in `jobExecutionRouter.js` has no trace span. `requestId` from `backend/middleware/requestId.js` is the only correlation mechanism.
-
-#### Approach
-
-1. **Install:** `@opentelemetry/sdk-node`, `@opentelemetry/auto-instrumentations-node`, `@opentelemetry/exporter-trace-otlp-http`, `prom-client`.
-2. **`backend/instrumentation.js`** (new, loaded before `server.js` via `--import`): initialise OTEL SDK with HTTP, MongoDB, and ioredis auto-instrumentations.
-3. **Custom span** in `jobExecutionRouter.js`: `job.dispatch` span with `{ jobId, agentId, orgId }` attributes; child `job.execute` span covering the wait for `command_result`.
-4. **`GET /metrics`** in `routes/adminR.js` (admin-auth or IP-restricted): `prom-client` default registry.
-5. **Key metrics:** `axon_job_dispatch_duration_seconds` (histogram), `axon_job_status_total` (counter by status), `axon_agent_connected` (gauge).
-6. **Correlation:** propagate `requestId` as OTEL baggage; emit `traceId` in pino log lines.
-
-**Files touched:** `backend/package.json`, `backend/instrumentation.js` (new), `server.js`, `routes/adminR.js`, `services/jobExecutionRouter.js`, `backend/Dockerfile`
-
-**Effort:** M (2–3 days)
-
-**Done-when:** `GET /metrics` returns Prometheus text. A job dispatch produces a multi-span trace in an OTLP-compatible backend. `traceId` appears in pino output.
-
-**Dependencies:** OTLP endpoint configurable via `OTEL_EXPORTER_OTLP_ENDPOINT` env var (no-op if unset).
+**Notes:**
+- `docker-compose.yml` now requires `PROMETHEUS_BEARER_TOKEN` (no default) and `GRAFANA_ADMIN_PASSWORD` at startup.
+- Before first run, create `./observability/prometheus/token` with the bearer token: `echo -n "$PROMETHEUS_BEARER_TOKEN" > observability/prometheus/token`.
 
 ---
 
-### Item 9 — Swagger Accuracy ✅ Already Resolved
+### Item 9 — Swagger Accuracy ✅ Done (reopened, then completed 2026-08-12)
 
-`backend/swagger.yaml` already uses the correct singular `/user` path prefix and documents all 28 live routes — verified against `backend/routes/*.js` and `server.js` mounts. The audit's "stale swagger / wrong prefix" finding was incorrect. No work required.
+`backend/swagger.yaml` uses the correct singular `/user` prefix; the original audit's "wrong
+prefix" finding was incorrect.
+
+**However, this item was closed prematurely.** It was marked resolved because all **28** live
+routes were documented — true at the time. Items 8, 10, 11 and 12 subsequently added six more
+routes, none of which reached the spec. The item went stale silently because "verified once" was
+recorded as "done forever".
+
+Added 2026-08-12, each verified against its route and controller:
+
+| Path | Method | Source |
+|---|---|---|
+| `/jobs/{id}/permissions` | PATCH | `routes/jobR.js:30` → `jobC.js:533` |
+| `/agents/refresh-token` | POST | `routes/agentProvisioningR.js:15` → `agentProvisioningC.js:250` |
+| `/agents/{agentId}/permissions` | PATCH | `routes/agentProvisioningR.js:17` → `agentProvisioningC.js:214` |
+| `/audit/verify-chain` | GET | `routes/auditR.js:21` → `auditC.js:126` |
+| `/admin/metrics` | GET | `routes/adminR.js:37` |
+| `/admin/metrics/prometheus` | GET | `routes/adminR.js:48` |
+
+Also added `agentToken` and `prometheusToken` security schemes — both endpoints use HTTP bearer
+auth, which the spec could not previously express.
+
+**Verified:** the spec parses as valid YAML and documents **34 paths**, matching the 34 routes
+mounted in `server.js:108-113`.
+
+> **Recurrence risk.** This drifts again the moment a route is added. The durable fix is a CI check
+> that diffs `swagger.yaml` paths against the router mounts and fails the build on mismatch. Until
+> that exists, "swagger is accurate" is true only as of the date stamped here.
 
 ---
 

@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'axon-backend'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ['backend:3000']
+    metrics_path: '/admin/metrics/prometheus'
+    scheme: 'http'
+    # Bearer token for the scrape endpoint. Read from a mounted file rather than
+    # committed inline — Prometheus does not expand env vars in this config, so a
+    # literal here would mean a credential in version control.
+    # Create it with:  echo -n "$PROMETHEUS_BEARER_TOKEN" > observability/prometheus/token
+    # Must match PROMETHEUS_BEARER_TOKEN in the backend service.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/token

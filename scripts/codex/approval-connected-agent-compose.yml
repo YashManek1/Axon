@@ -1,0 +1,87 @@
+name: ${COMPOSE_PROJECT_NAME}
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: ${MONGO_CONTAINER}
+    restart: "no"
+    labels: &owner-labels
+      com.axon.approval.owner: ${AXON_APPROVAL_OWNER}
+      com.axon.approval.run: ${AXON_APPROVAL_RUN}
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - approval-mongodb:/data/db
+      - approval-mongodb-config:/data/configdb
+    networks: [approval]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--username", "${MONGO_USERNAME}", "--password", "${MONGO_PASSWORD}", "--authenticationDatabase", "admin", "--eval", "db.adminCommand('ping').ok"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${REDIS_CONTAINER}
+    restart: "no"
+    labels: *owner-labels
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - approval-redis:/data
+    networks: [approval]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 3s
+
+  backend:
+    image: ${BACKEND_IMAGE}
+    container_name: ${BACKEND_CONTAINER}
+    restart: "no"
+    labels: *owner-labels
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: warn
+      PORT: "3000"
+      AXON_EXECUTION_PROFILE: pilot
+      AXON_RELEASE_ID: ${AXON_RELEASE_ID}
+      MONGO_URI: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongodb:27017/${MONGO_DATABASE}?authSource=admin
+      REDIS_URI: redis://redis:6379/15
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      DISPATCH_SIGNING_KEY: ${DISPATCH_SIGNING_KEY}
+      PROMETHEUS_BEARER_TOKEN: ${PROMETHEUS_BEARER_TOKEN}
+      CORS_ALLOWED_ORIGINS: http://backend:3000
+    networks: [approval]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+volumes:
+  approval-mongodb:
+    name: ${MONGO_VOLUME}
+    labels: *owner-labels
+  approval-mongodb-config:
+    name: ${MONGO_CONFIG_VOLUME}
+    labels: *owner-labels
+  approval-redis:
+    name: ${REDIS_VOLUME}
+    labels: *owner-labels
+
+networks:
+  approval:
+    name: ${APPROVAL_NETWORK}
+    labels: *owner-labels
+    internal: true

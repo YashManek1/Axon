@@ -89,6 +89,7 @@ describe("auth cookies", () => {
     const issuedAt = Math.floor(Date.now() / 1000) - 2 * 60 * 60;
     const token = jwt.sign(
       {
+        purpose: "human-session",
         id: loginResponse.body.user._id,
         orgId: loginResponse.body.user.orgId,
         username: loginResponse.body.user.username,
@@ -96,7 +97,11 @@ describe("auth cookies", () => {
         iat: issuedAt,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" },
+      {
+        audience: "axon-ui",
+        subject: loginResponse.body.user._id,
+        expiresIn: "1h",
+      },
     );
 
     const response = await request(app)
@@ -112,6 +117,7 @@ describe("auth cookies", () => {
     const issuedAt = Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60;
     const token = jwt.sign(
       {
+        purpose: "human-session",
         id: loginResponse.body.user._id,
         orgId: loginResponse.body.user.orgId,
         username: loginResponse.body.user.username,
@@ -119,7 +125,11 @@ describe("auth cookies", () => {
         iat: issuedAt,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" },
+      {
+        audience: "axon-ui",
+        subject: loginResponse.body.user._id,
+        expiresIn: "1h",
+      },
     );
 
     const response = await request(app)

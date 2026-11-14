@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "profile": "axon_b2b",
+  "mode": "dry_run",
+  "batch_id": "first-client-zero-qualified-2026-09-16",
+  "prepared_at": "2026-09-16T18:00:00+05:30",
+  "approval": {
+    "status": "pending",
+    "approved_by": null,
+    "approved_at": null,
+    "approval_expires_at": null
+  },
+  "zero_recipient_reason": "No organization met the 7/10 cold-outreach threshold after first-party public-source review.",
+  "items": []
+}

@@ -49,12 +49,12 @@ interface StatCardProps {
 
 function StatCard({ label, value, sub, icon, deltaType = "neutral" }: StatCardProps) {
   return (
-    <div className="panel stat">
-      <div className="k">{icon}{label}</div>
-      <div className="v">{value}</div>
+    <div className="bg-surface border border-edge rounded-md p-4 flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-muted text-xs uppercase font-medium">{icon}{label}</div>
+      <div className="text-ink text-lg font-bold">{value}</div>
       {sub && (
-        <div className="d">
-          <span className={deltaType}>{sub}</span>
+        <div className="text-xs">
+          <span className={deltaType === "up" ? "text-success" : deltaType === "down" ? "text-danger" : "text-muted"}>{sub}</span>
         </div>
       )}
     </div>
@@ -103,29 +103,29 @@ function OrgRow({ org }: { org: OrgStat }) {
   return (
     <tr>
       <td>
-        <div style={{ fontWeight: 600, color: "var(--text)", fontSize: "var(--t-sm)" }}>{org.orgName}</div>
+        <div className="font-bold text-ink text-sm">{org.orgName}</div>
         {org.orgDescription && (
-          <div style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)", marginTop: 1 }}>{org.orgDescription}</div>
+          <div className="text-xs text-muted mt-px">{org.orgDescription}</div>
         )}
       </td>
-      <td className="mono" style={{ fontSize: "var(--t-xs)", textAlign: "center" }}>{org.userCount}</td>
-      <td style={{ textAlign: "center" }}>
-        <div style={{ fontSize: "var(--t-sm)", fontWeight: 600, color: "var(--text)" }}>
+      <td className="font-mono text-xs text-center">{org.userCount}</td>
+      <td className="text-center">
+        <div className="text-sm font-bold text-ink">
           {org.onlineAgents}/{org.agentCount}
         </div>
         {org.agentCount > 0 && (
-          <div style={{ fontSize: "var(--t-xs)", color: agentAvailabilityPct === 100 ? "var(--ok)" : agentAvailabilityPct > 50 ? "var(--warn)" : "var(--err)" }}>
+          <div className={`text-xs ${agentAvailabilityPct === 100 ? "text-success" : agentAvailabilityPct > 50 ? "text-warning" : "text-danger"}`}>
             {agentAvailabilityPct}% online
           </div>
         )}
       </td>
-      <td style={{ textAlign: "center" }}>
-        <div className="row gap-1" style={{ justifyContent: "center" }}>
-          <span className="chip">shell&nbsp;{org.shellJobCount}</span>
-          <span className="chip">http&nbsp;{org.httpJobCount}</span>
+      <td className="text-center">
+        <div className="flex gap-1 justify-center">
+          <span className="font-mono text-xs bg-surface border border-edge rounded-sm px-2 py-px text-ink-2">shell&nbsp;{org.shellJobCount}</span>
+          <span className="font-mono text-xs bg-surface border border-edge rounded-sm px-2 py-px text-ink-2">http&nbsp;{org.httpJobCount}</span>
         </div>
       </td>
-      <td className="mono" style={{ fontSize: "var(--t-xs)", color: "var(--text-muted)", textAlign: "center" }}>
+      <td className="font-mono text-xs text-muted text-center">
         {formatDate(org.createdAt)}
       </td>
     </tr>
@@ -137,16 +137,18 @@ function UserRow({ user }: { user: AllUser }) {
   return (
     <tr>
       <td>
-        <div style={{ fontWeight: 600, color: "var(--text)", fontSize: "var(--t-sm)" }}>{user.username}</div>
+        <div className="font-bold text-ink text-sm">{user.username}</div>
       </td>
-      <td style={{ fontSize: "var(--t-xs)", color: "var(--text-muted)" }}>{user.email}</td>
+      <td className="text-xs text-muted">{user.email}</td>
       <td>
-        <span className="chip">{orgName}</span>
+        <span className="font-mono text-xs bg-surface border border-edge rounded-sm px-2 py-px text-ink-2">{orgName}</span>
       </td>
       <td>
-        <span className={"badge " + (user.role === "admin" ? "active" : "paused")}>{user.role}</span>
+        <span className={`inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm ${
+          user.role === "admin" ? "text-success bg-green-500/10" : "text-warning bg-amber-500/10"
+        }`}>{user.role}</span>
       </td>
-      <td className="mono" style={{ fontSize: "var(--t-xs)", color: "var(--text-muted)", textAlign: "right" }}>
+      <td className="font-mono text-xs text-muted text-right">
         {formatDate(user.createdAt)}
       </td>
     </tr>
@@ -209,21 +211,21 @@ export default function AdminAnalyticsPage() {
 
   return (
     <>
-      <div className="page-head">
+      <div className="flex items-start justify-between gap-8 mb-8">
         <div>
-          <h1>Admin Analytics</h1>
-          <p>Platform-wide health, customer breakdown, and operational metrics</p>
+          <h1 className="text-2xl font-bold text-ink">Admin Analytics</h1>
+          <p className="text-muted mt-2">Platform-wide health, customer breakdown, and operational metrics</p>
         </div>
-        <div className="actions">
-          <span className="badge active">
-            <Shield size={11} style={{ marginRight: 4 }} />
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 font-ui font-bold text-xs uppercase px-2 py-px rounded-sm text-success bg-green-500/10">
+            <Shield size={11} />
             admin only
           </span>
         </div>
       </div>
 
       {/* Hero stats */}
-      <div className="stat-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 180px), 1fr))", marginBottom: 20 }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-5">
         <StatCard
           label="Organizations"
           value={orgAnalytics?.totalOrgs ?? "—"}
@@ -262,17 +264,17 @@ export default function AdminAnalyticsPage() {
       </div>
 
       {/* Charts row 1 */}
-      <div className="grid-2" style={{ marginBottom: 16 }}>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
         {/* Jobs per organisation — horizontal bar */}
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">Jobs per organisation</span>
-            <span className="grow" />
-            <span style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)" }}>top 10</span>
+        <div className="bg-surface border border-edge rounded-md overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+            <span className="font-ui font-bold text-sm text-ink">Jobs per organisation</span>
+            <span className="flex-1" />
+            <span className="text-xs text-muted">top 10</span>
           </div>
-          <div className="chart-wrap">
+          <div className="p-4">
             {jobsByOrgData.length === 0 ? (
-              <div style={{ padding: 32, textAlign: "center", color: "var(--text-faint)", fontSize: "var(--t-sm)" }}>
+              <div className="py-8 text-center text-muted text-sm">
                 No data
               </div>
             ) : (
@@ -281,7 +283,7 @@ export default function AdminAnalyticsPage() {
                   <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis
                     type="number"
-                    tick={{ fontSize: 11, fill: "var(--text-faint)", fontFamily: "var(--font-mono)" }}
+                    tick={{ fontSize: 11, fill: "var(--muted)", fontFamily: "var(--font-mono)" }}
                     axisLine={false}
                     tickLine={false}
                     allowDecimals={false}
@@ -290,11 +292,11 @@ export default function AdminAnalyticsPage() {
                     type="category"
                     dataKey="name"
                     width={110}
-                    tick={{ fontSize: 11, fill: "var(--text-muted)", fontFamily: "var(--font-ui)" }}
+                    tick={{ fontSize: 11, fill: "var(--muted)", fontFamily: "var(--font-ui)" }}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip content={<BarTooltip />} cursor={{ fill: "var(--surface-3)" }} />
+                  <Tooltip content={<BarTooltip />} cursor={{ fill: "var(--surface-2)" }} />
                   <Bar dataKey="jobs" fill={CHART_COLORS.accent} radius={[0, 4, 4, 0]} maxBarSize={22} />
                 </BarChart>
               </ResponsiveContainer>
@@ -303,11 +305,11 @@ export default function AdminAnalyticsPage() {
         </div>
 
         {/* Job type distribution */}
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">Job types</span>
+        <div className="bg-surface border border-edge rounded-md overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+            <span className="font-ui font-bold text-sm text-ink">Job types</span>
           </div>
-          <div className="chart-wrap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <div className="p-4 flex flex-col items-center gap-3">
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
                 <Pie
@@ -326,10 +328,10 @@ export default function AdminAnalyticsPage() {
                 <Tooltip content={<PieTooltip total={totalJobTypePieSum} />} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="chart-legend">
+            <div className="flex flex-col items-center gap-2">
               {jobTypeData.map((entry) => (
-                <span key={entry.name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "var(--t-xs)", color: "var(--text-muted)" }}>
-                  <i style={{ width: 8, height: 8, borderRadius: 2, background: entry.color, display: "inline-block", flexShrink: 0 }} />
+                <span key={entry.name} className="flex items-center gap-1 text-xs text-muted">
+                  <i className="w-2 h-2 rounded inline-block flex-shrink-0" style={{ background: entry.color }} />
                   {entry.name} ({entry.value})
                 </span>
               ))}
@@ -339,13 +341,13 @@ export default function AdminAnalyticsPage() {
       </div>
 
       {/* Charts row 2 */}
-      <div className="grid-2" style={{ marginBottom: 16 }}>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
         {/* Agent fleet status */}
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">Agent fleet status</span>
+        <div className="bg-surface border border-edge rounded-md overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+            <span className="font-ui font-bold text-sm text-ink">Agent fleet status</span>
           </div>
-          <div className="chart-wrap" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <div className="p-4 flex flex-col items-center gap-3">
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
                 <Pie
@@ -364,10 +366,10 @@ export default function AdminAnalyticsPage() {
                 <Tooltip content={<PieTooltip total={totalAgentSum} />} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="chart-legend">
+            <div className="flex flex-col items-center gap-2">
               {agentStatusData.map((entry) => (
-                <span key={entry.name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "var(--t-xs)", color: "var(--text-muted)" }}>
-                  <i style={{ width: 8, height: 8, borderRadius: "50%", background: entry.color, display: "inline-block", flexShrink: 0 }} />
+                <span key={entry.name} className="flex items-center gap-1 text-xs text-muted">
+                  <i className="w-2 h-2 rounded-full inline-block flex-shrink-0" style={{ background: entry.color }} />
                   {entry.name} ({entry.value})
                 </span>
               ))}
@@ -376,29 +378,29 @@ export default function AdminAnalyticsPage() {
         </div>
 
         {/* System health + job health */}
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">System health</span>
-            <span className="grow" />
+        <div className="bg-surface border border-edge rounded-md overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+            <span className="font-ui font-bold text-sm text-ink">System health</span>
+            <span className="flex-1" />
             {health && (
-              <span style={{ fontSize: "var(--t-xs)", color: health.status === "ok" ? "var(--ok)" : "var(--err)" }}>
+              <span className={`text-xs ${health.status === "ok" ? "text-success" : "text-danger"}`}>
                 {health.status}
               </span>
             )}
           </div>
-          <div className="panel-pad" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className="p-4 flex flex-col gap-3">
             {/* Health rows */}
             {[
               {
                 label: "Database",
                 value: health ? dbStateLabel[health.dbState] ?? "Unknown" : "—",
-                color: health ? dbStateColor[health.dbState] : "var(--text-faint)",
+                color: health ? dbStateColor[health.dbState] : "var(--muted)",
                 icon:  <Database size={13} />,
               },
               {
                 label: "Uptime",
                 value: health ? formatUptime(health.uptime) : "—",
-                color: "var(--ok)",
+                color: "var(--success)",
                 icon:  <Clock size={13} />,
               },
               {
@@ -408,15 +410,15 @@ export default function AdminAnalyticsPage() {
                 icon:  <Users size={13} />,
               },
             ].map(({ label, value, color, icon }) => (
-              <div key={label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ color: "var(--text-faint)", display: "flex", alignItems: "center" }}>{icon}</span>
-                <span style={{ flex: 1, fontSize: "var(--t-sm)", color: "var(--text-muted)" }}>{label}</span>
-                <span className="mono" style={{ fontSize: "var(--t-sm)", color, fontWeight: 600 }}>{value}</span>
+              <div key={label} className="flex items-center gap-2.5">
+                <span className="text-muted flex items-center">{icon}</span>
+                <span className="flex-1 text-sm text-muted">{label}</span>
+                <span className="font-mono text-sm font-bold" style={{ color }}>{value}</span>
               </div>
             ))}
 
-            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-              <div style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)", marginBottom: 8 }}>Job health</div>
+            <div className="border-t border-edge pt-3">
+              <div className="text-xs text-muted mb-2">Job health</div>
               <ResponsiveContainer width="100%" height={80}>
                 <PieChart>
                   <Pie
@@ -436,7 +438,7 @@ export default function AdminAnalyticsPage() {
                   <Legend
                     iconType="circle"
                     iconSize={7}
-                    wrapperStyle={{ fontSize: "var(--t-xs)", color: "var(--text-muted)" }}
+                    wrapperStyle={{ fontSize: "var(--t-xs)", color: "var(--muted)" }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -446,33 +448,33 @@ export default function AdminAnalyticsPage() {
       </div>
 
       {/* Organisations table */}
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel-head">
-          <span className="panel-title">Organisations</span>
-          <span className="grow" />
-          <span style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)" }}>
+      <div className="bg-surface border border-edge rounded-md overflow-hidden mb-4">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+          <span className="font-ui font-bold text-sm text-ink">Organisations</span>
+          <span className="flex-1" />
+          <span className="text-xs text-muted">
             {orgAnalytics?.orgs.length ?? 0} total
           </span>
         </div>
-        <div className="table-wrap">
-          <table className="tbl">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th>Organisation</th>
-                <th style={{ textAlign: "center" }}>Users</th>
-                <th style={{ textAlign: "center" }}>Agents</th>
-                <th style={{ textAlign: "center" }}>Jobs</th>
-                <th style={{ textAlign: "center" }}>Created</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Organisation</th>
+                <th className="text-center font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Users</th>
+                <th className="text-center font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Agents</th>
+                <th className="text-center font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Jobs</th>
+                <th className="text-center font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Created</th>
               </tr>
             </thead>
             <tbody>
               {!orgAnalytics ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>Loading…</td>
+                  <td colSpan={5} className="text-center text-muted h-16">Loading…</td>
                 </tr>
               ) : orgAnalytics.orgs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>No organisations</td>
+                  <td colSpan={5} className="text-center text-muted h-16">No organisations</td>
                 </tr>
               ) : (
                 [...orgAnalytics.orgs]
@@ -485,29 +487,29 @@ export default function AdminAnalyticsPage() {
       </div>
 
       {/* Users table */}
-      <div className="panel">
-        <div className="panel-head">
-          <span className="panel-title">Users</span>
-          <span className="grow" />
-          <span style={{ fontSize: "var(--t-xs)", color: "var(--text-faint)" }}>
+      <div className="bg-surface border border-edge rounded-md overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+          <span className="font-ui font-bold text-sm text-ink">Users</span>
+          <span className="flex-1" />
+          <span className="text-xs text-muted">
             {allUsers.length} total
           </span>
         </div>
-        <div className="table-wrap">
-          <table className="tbl">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Email</th>
-                <th>Organisation</th>
-                <th>Role</th>
-                <th style={{ textAlign: "right" }}>Joined</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Username</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Email</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Organisation</th>
+                <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Role</th>
+                <th className="text-right font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Joined</th>
               </tr>
             </thead>
             <tbody>
               {allUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", color: "var(--text-faint)", height: 64 }}>No users</td>
+                  <td colSpan={5} className="text-center text-muted h-16">No users</td>
                 </tr>
               ) : (
                 allUsers.map((user) => <UserRow key={user._id} user={user} />)

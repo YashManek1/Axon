@@ -1,38 +1,42 @@
 # Production override — use with:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   docker compose --env-file backend/.env.production \
+#     -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# Differences from the base compose:
-#   - No local mongodb/redis (uses Atlas + managed Redis via env vars)
-#   - Uses pre-built images instead of building from source
-#   - MongoDB port NOT exposed (no external access)
-#   - env_file points to backend/.env.production
-#   - Frontend image accepts VITE_API_BASE_URL at build time
-
+# Reviewed release images and AXON_RELEASE_ID must be set in the interpolation
+# environment. The protected backend/.env.production file supplies runtime
+# secrets and external data endpoints AND the required base-file interpolation
+# values (including GRAFANA_ADMIN_PASSWORD while Grafana is enabled). Shell
+# variables take precedence. Provision this file outside source control.
 services:
-  # Disable local MongoDB — use MongoDB Atlas (MONGO_URI in env)
+  # Local data services are opt-in here. A production install uses private
+  # externally managed MongoDB and Redis endpoints.
   mongodb:
-    deploy:
-      replicas: 0
+    profiles: ["local-data-only"]
 
-  # Disable local Redis — use managed Redis (REDIS_URI in env)
   redis:
-    deploy:
-      replicas: 0
+    profiles: ["local-data-only"]
 
   backend:
-    image: ${BACKEND_IMAGE:-axon-backend:latest}
-    build: !reset null          # don't rebuild from source in prod
-    env_file:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to the reviewed release image digest}
+    build: !reset null
+    env_file: !override
       - path: backend/.env.production
         required: true
-    environment:
+    # Replace base development defaults; otherwise these shadow env_file values.
+    environment: !override
       NODE_ENV: production
-    # Remove internal port exposure — put a reverse proxy / load balancer in front
-    ports:
-      - "${PORT:-3000}:3000"
-    depends_on: {}              # no local mongo/redis to wait for
+      PORT: "3000"
+      AXON_RELEASE_ID: ${AXON_RELEASE_ID:?Set AXON_RELEASE_ID to the reviewed release}
+    # HTTPS/WSS ingress on this host proxies to this private listener.
+    ports: !override
+      - "127.0.0.1:${PORT:-3000}:3000"
+    depends_on: !reset null
 
   frontend:
-    image: ${FRONTEND_IMAGE:-axon-frontend:latest}
+    image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE to the reviewed release image digest}
     build: !reset null
-    depends_on: {}
+    depends_on: !override
+      backend:
+        condition: service_healthy
+    ports: !override
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"

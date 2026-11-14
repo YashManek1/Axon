@@ -1,26 +1,26 @@
 export default function DataPipeline() {
   return (
-    <section className="band" id="data-pipelines">
-      <div className="wrap">
-        <div className="sec-head">
-          <h2>Your jobs already collect data. Give the output somewhere to go.</h2>
-          <p>
+    <section className="py-24 border-t border-edge-subtle" id="data-pipelines">
+      <div className="max-w-[1200px] mx-auto px-8">
+        <div className="mb-12 max-w-2xl">
+          <h2 className="text-4xl font-bold text-ink tracking-tight mb-3 leading-tight">Your jobs already collect data. Give the output somewhere to go.</h2>
+          <p className="text-base text-ink-2 leading-relaxed">
             Every execution produces output. Right now that output vanishes into a log file nobody reads,
             a cron email nobody monitors, or a terminal nobody is watching. Axon routes it to your database.
           </p>
         </div>
 
         {/* ── Incident / Solution card ─────────────────────────────── */}
-        <div className="problem">
-          <div className="half incident">
-            <div className="eyebrow lab-incident">The Incident</div>
-            <div className="phead">
+        <div className="bg-surface border border-edge rounded-md mb-5 relative overflow-hidden grid grid-cols-1 lg:grid-cols-2">
+          <div className="p-8 relative z-10 border-l-2 border-danger/30">
+            <div className="font-mono text-xs font-semibold uppercase tracking-wider text-danger/55 mb-3">The Incident</div>
+            <div className="text-base font-semibold text-ink mb-3 leading-tight">
               The pipeline lived in someone&apos;s cron. He left. The data stopped. Nobody noticed for 23 days.
             </div>
-            <p className="pbody" style={{ maxWidth: 460 }}>
+            <p className="text-sm text-ink-2 leading-relaxed max-w-sm">
               Your growth team needed daily Stripe revenue data in the analytics database. An engineer
               wrote a Python cron: hit the API every morning at 9am, format the JSON, email results to{" "}
-              <span className="mono">analytics@company.com</span>. When IT cleaned up aliases in a Q3
+              <span className="font-mono">analytics@company.com</span>. When IT cleaned up aliases in a Q3
               sweep, the cron kept firing and the emails kept bouncing. Nobody was subscribed to the
               bounce notifications. The data hadn&apos;t moved in 23 days. Finance caught it four days before
               the board deck was due. Three engineers spent two days reconstructing what the pipeline had
@@ -29,50 +29,50 @@ export default function DataPipeline() {
             </p>
           </div>
 
-          <div className="half solution">
-            <div className="eyebrow lab-solution">What Axon Does</div>
-            <div className="phead">
+          <div className="p-8 relative z-10 border-l-2 border-primary/30 bg-[rgba(13,24,41,0.4)]">
+            <div className="font-mono text-xs font-semibold uppercase tracking-wider text-primary/60 mb-3">What Axon Does</div>
+            <div className="text-base font-semibold text-ink mb-3 leading-tight">
               Configure a sink on any job. Every run&apos;s output lands in your database, retried, audited,
               and encrypted at rest.
             </div>
-            <p className="pbody">
+            <p className="text-sm text-ink-2 leading-relaxed mb-4">
               HTTP jobs capture the API response body. Shell jobs capture stdout. Both are written to
               your MongoDB collection on every run &mdash; tagged with{" "}
-              <span className="mono">jobId</span>,{" "}
-              <span className="mono">orgId</span>, and{" "}
-              <span className="mono">executedAt</span>. If the run fails, BullMQ retries with exponential
+              <span className="font-mono">jobId</span>,{" "}
+              <span className="font-mono">orgId</span>, and{" "}
+              <span className="font-mono">executedAt</span>. If the run fails, BullMQ retries with exponential
               backoff. The audit log records every attempt and its outcome, whether or not anyone is
               watching. Chain jobs with DAG dependencies to build multi-step pipelines: one job fetches
               orders, one fetches returns, a third reconciles both &mdash; each sink writes to a separate
               collection automatically. The pipeline is observable, retried, and does not live in
               anyone&apos;s inbox.
             </p>
-            <div className="code" style={{ fontSize: 11, marginTop: 16 }}>
-              <span className="c-comment">{"// Any job — configure once, runs on schedule"}</span>{"\n"}
+            <div className="bg-term-bg border border-edge rounded-sm p-4 font-mono text-xs text-ink-2 leading-relaxed overflow-x-auto mt-4">
+              <span className="text-muted">{"// Any job — configure once, runs on schedule"}</span>{"\n"}
               {"{\n "}
-              <span className="c-key">name</span>{": "}<span className="c-str">&quot;Daily Revenue Sync&quot;</span>{",\n "}
-              <span className="c-key">type</span>{": "}<span className="c-str">&quot;http&quot;</span>{",\n "}
-              <span className="c-key">schedule</span>{": "}<span className="c-str">&quot;0 9 * * *&quot;</span>{",\n "}
-              <span className="c-key">payload</span>{": "}{"{ url: "}<span className="c-str">&quot;https://api.stripe.com/v1/charges&quot;</span>{" },\n "}
-              <span className="c-key">sink</span>{": {\n   "}
-              <span className="c-key">databaseName</span>{":\t"}<span className="c-str">&quot;warehouse&quot;</span>{",\n   "}
-              <span className="c-key">collectionName</span>{": "}<span className="c-str">&quot;revenue_daily&quot;</span>{"\n "}{"}\n}"}{"\n\n"}
-              <span className="c-comment">{"// warehouse.revenue_daily receives on every run:"}</span>{"\n"}
-              {"{ "}<span className="c-key">jobId</span>{", "}<span className="c-key">orgId</span>{", "}
-              <span className="c-key">executedAt</span>{": "}<span className="c-str">&quot;2024-03-15T09:00:01Z&quot;</span>{", "}<span className="c-key">data</span>{": {...} }"}
+              <span className="text-primary">name</span>{": "}<span className="text-success">&quot;Daily Revenue Sync&quot;</span>{",\n "}
+              <span className="text-primary">type</span>{": "}<span className="text-success">&quot;http&quot;</span>{",\n "}
+              <span className="text-primary">schedule</span>{": "}<span className="text-success">&quot;0 9 * * *&quot;</span>{",\n "}
+              <span className="text-primary">payload</span>{": "}{"{ url: "}<span className="text-success">&quot;https://api.stripe.com/v1/charges&quot;</span>{" },\n "}
+              <span className="text-primary">sink</span>{": {\n   "}
+              <span className="text-primary">databaseName</span>{":\t"}<span className="text-success">&quot;warehouse&quot;</span>{",\n   "}
+              <span className="text-primary">collectionName</span>{": "}<span className="text-success">&quot;revenue_daily&quot;</span>{"\n "}{"}\n}"}{"\n\n"}
+              <span className="text-muted">{"// warehouse.revenue_daily receives on every run:"}</span>{"\n"}
+              {"{ "}<span className="text-primary">jobId</span>{", "}<span className="text-primary">orgId</span>{", "}
+              <span className="text-primary">executedAt</span>{": "}<span className="text-success">&quot;2024-03-15T09:00:01Z&quot;</span>{", "}<span className="text-primary">data</span>{": {...} }"}
             </div>
           </div>
 
-          <div className="pnum" aria-hidden="true">05</div>
+          <div className="absolute bottom-[-18px] right-2 text-8xl font-bold text-edge leading-none select-none z-0">05</div>
         </div>
 
         {/* ── DAG pipeline diagram ─────────────────────────────────── */}
-        <div className="arch" style={{ marginTop: 24, padding: "32px 24px" }}>
-          <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", letterSpacing: ".08em", textTransform: "uppercase" }}>
+        <div className="bg-surface border border-edge rounded-md p-6 lg:p-8 mt-6">
+          <div className="text-center mb-6">
+            <div className="font-mono text-xs text-muted uppercase tracking-widest mb-1.5">
               Example: 3-job reconciliation pipeline
             </div>
-            <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 6 }}>
+            <div className="text-sm text-ink-2 mt-1.5">
               Two fetch jobs run in parallel. The reconcile job waits for both. All three sink to your warehouse.
             </div>
           </div>
@@ -229,7 +229,7 @@ export default function DataPipeline() {
         </div>
 
         {/* ── Technical facts ──────────────────────────────────────── */}
-        <div className="factgrid" style={{ marginTop: 24 }}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4 mt-6">
           {[
             {
               title: "HTTP jobs: API response body",
@@ -248,9 +248,9 @@ export default function DataPipeline() {
               body:  "BullMQ retries failed runs with exponential backoff. Every attempt — success or failure — is in the immutable audit log.",
             },
           ].map((fact) => (
-            <div className="fact" key={fact.title}>
-              <div className="ft">{fact.title}</div>
-              <div className="fb">{fact.body}</div>
+            <div className="bg-surface border border-edge rounded-md p-4.5" key={fact.title}>
+              <div className="font-mono text-sm text-primary mb-2">{fact.title}</div>
+              <div className="text-sm text-ink-2 leading-relaxed">{fact.body}</div>
             </div>
           ))}
         </div>

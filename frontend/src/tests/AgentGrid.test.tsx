@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AgentsPage from "../pages/dashboard/AgentsPage";
 import { useAgents } from "../hooks/useDashboardData";
+import { useAuthStore } from "../stores/authStore";
 
 vi.mock("../hooks/useDashboardData", () => ({
   useAgents: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("../stores/toastStore", () => ({
 }));
 
 const mockedUseAgents = vi.mocked(useAgents);
+const mockedUseAuthStore = vi.mocked(useAuthStore);
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -66,12 +68,13 @@ function agent(overrides: Record<string, unknown> = {}) {
 describe("AgentGrid", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedUseAuthStore.mockReturnValue({ user: { role: "user" } } as never);
   });
 
   it("renders empty state when agents array is empty", () => {
     mockedUseAgents.mockReturnValue({ data: [], isLoading: false } as never);
     renderPage();
-    expect(screen.getByText("No agents registered")).toBeInTheDocument();
+    expect(screen.getByText("No servers registered")).toBeInTheDocument();
   });
 
   it("renders agent cards when agents are provided", () => {
@@ -90,14 +93,15 @@ describe("AgentGrid", () => {
       isLoading: false,
     } as never);
     renderPage();
-    expect(screen.getAllByText(/heartbeat lost/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/connection unavailable/i).length).toBeGreaterThan(0);
   });
 
-  it("Register agent button is present", () => {
+  it("Register server button is present for an administrator", () => {
+    mockedUseAuthStore.mockReturnValue({ user: { role: "admin" } } as never);
     mockedUseAgents.mockReturnValue({ data: [], isLoading: false } as never);
     renderPage();
     expect(
-      screen.getAllByRole("button", { name: /register agent/i }).length,
+      screen.getAllByRole("button", { name: /register a server/i }).length,
     ).toBeGreaterThan(0);
   });
 });

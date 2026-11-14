@@ -25,62 +25,62 @@ const rustAgents = [
 
 export default function Architecture() {
   return (
-    <section className="band" id="architecture">
-      <div className="wrap">
-        <div className="sec-head">
-          <h2>The architecture. No black boxes.</h2>
-          <p>Engineers don't use infrastructure they can't see inside.</p>
+    <section className="py-24 border-t border-edge-subtle" id="architecture">
+      <div className="max-w-[1200px] mx-auto px-8">
+        <div className="mb-12 max-w-2xl">
+          <h2 className="text-4xl font-bold text-ink tracking-tight mb-3 leading-tight">The architecture. No black boxes.</h2>
+          <p className="text-base text-ink-2 leading-relaxed">Engineers don't use infrastructure they can't see inside.</p>
         </div>
 
-        <div className="arch">
-          <div className="arch-layer">
-            <div className="arch-node">
-              <div className="n">Dashboard / UI</div>
-              <div className="t">React frontend</div>
-              <div className="d">your control surface</div>
+        <div className="bg-surface border border-edge rounded-md p-4 sm:p-10">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap justify-center gap-4 mb-2">
+            <div className="bg-bg border border-edge rounded-sm p-3.5 text-center w-full sm:w-auto sm:min-w-52">
+              <div className="font-semibold text-sm text-ink">Dashboard / UI</div>
+              <div className="font-mono text-xs text-muted mt-0.5">React frontend</div>
+              <div className="text-xs text-ink-2 mt-1">your control surface</div>
             </div>
           </div>
-          <div className="arch-conn">↓&nbsp;&nbsp;HTTPS REST + Socket.IO (TLS)</div>
-          <div className="arch-layer">
-            <div className="arch-node">
-              <div className="n">Node.js Control Plane</div>
-              <div className="t">Node.js · scheduler</div>
-              <div className="d">enqueues + dispatches jobs</div>
+          <div className="text-center text-muted font-mono text-xs py-1.5">↓&nbsp;&nbsp;HTTPS REST + Socket.IO (TLS)</div>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap justify-center gap-4 mb-2">
+            <div className="bg-bg border border-edge rounded-sm p-3.5 text-center w-full sm:w-auto sm:min-w-52">
+              <div className="font-semibold text-sm text-ink">Node.js Control Plane</div>
+              <div className="font-mono text-xs text-muted mt-0.5">Node.js · scheduler</div>
+              <div className="text-xs text-ink-2 mt-1">enqueues + dispatches jobs</div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", color: "var(--muted)" }}>←→</div>
-            <div className="arch-node">
-              <div className="n">Redis / BullMQ</div>
-              <div className="t">queue · SETNX lock</div>
-              <div className="d">exactly-once + buffer</div>
+            <div className="flex items-center text-muted">←→</div>
+            <div className="bg-bg border border-edge rounded-sm p-3.5 text-center w-full sm:w-auto sm:min-w-52">
+              <div className="font-semibold text-sm text-ink">Redis / BullMQ</div>
+              <div className="font-mono text-xs text-muted mt-0.5">queue · SETNX lock</div>
+              <div className="text-xs text-ink-2 mt-1">idempotent retries + buffer</div>
             </div>
           </div>
-          <div className="arch-conn">↓&nbsp;&nbsp;WebSocket — port 443, outbound from agent</div>
-          <div className="arch-layer">
+          <div className="text-center text-muted font-mono text-xs py-1.5">↓&nbsp;&nbsp;WebSocket — port 443, outbound from agent</div>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap justify-center gap-4 mb-2">
             {rustAgents.map((agent) => (
-              <div className="arch-node" key={agent.tech}>
-                <div className="n">{agent.name}</div>
-                <div className="t">{agent.tech}</div>
-                <div className="d">{agent.desc}</div>
+              <div className="bg-bg border border-edge rounded-sm p-3.5 text-center w-full sm:w-auto sm:min-w-52" key={agent.tech}>
+                <div className="font-semibold text-sm text-ink">{agent.name}</div>
+                <div className="font-mono text-xs text-muted mt-0.5">{agent.tech}</div>
+                <div className="text-xs text-ink-2 mt-1">{agent.desc}</div>
               </div>
             ))}
           </div>
-          <div className="arch-conn" style={{ color: "var(--text-2)", fontFamily: "var(--font-ui)", fontSize: 13, paddingTop: 14 }}>
+          <div className="text-center text-ink-2 font-ui text-sm pt-3.5">
             Rust · open source · WebSocket client only — never accepts inbound connections.
           </div>
         </div>
 
-        <div className="factgrid">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4 mt-7">
           {facts.map((fact) => (
-            <div className="fact" key={fact.title}>
-              <div className="ft">{fact.title}</div>
-              <div className="fb">{fact.body}</div>
+            <div className="bg-surface border border-edge rounded-md p-4.5" key={fact.title}>
+              <div className="font-mono text-sm text-primary mb-2">{fact.title}</div>
+              <div className="text-sm text-ink-2 leading-relaxed">{fact.body}</div>
             </div>
           ))}
         </div>
 
-        <div className="callout">
-          <p>The Axon agent is open source. Read the Rust source before you run it on your production servers. It does exactly what this page describes.</p>
-          <a href="#" className="btn btn-secondary">View agent source on GitHub →</a>
+        <div className="bg-surface border border-l-2 border-l-primary border-edge rounded-md p-6 mt-7 flex items-center justify-between gap-6 flex-wrap">
+          <p className="text-base text-ink max-w-2xl leading-relaxed">The Axon agent is open source. Read the Rust source before you run it on your production servers. It does exactly what this page describes.</p>
+          <a href="#" className="inline-flex items-center justify-center gap-2 font-medium h-10 px-4 rounded-sm border border-edge text-ink-2 hover:border-primary hover:text-ink transition-all bg-transparent flex-shrink-0">View agent source on GitHub →</a>
         </div>
       </div>
     </section>

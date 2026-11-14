@@ -10,6 +10,7 @@ const validEnvironment = {
   JWT_SECRET: "test-secret-do-not-use-in-production",
   ENCRYPTION_KEY:
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  DISPATCH_SIGNING_KEY: "deadbeefdeadbeefdeadbeefdeadbeef",
   LOG_LEVEL: "info",
   NODE_ENV: "test",
 };
@@ -30,6 +31,15 @@ describe("environment validation", () => {
     ).toThrow(/JWT_SECRET/);
   });
 
+  it("throws when DISPATCH_SIGNING_KEY is too short", () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        DISPATCH_SIGNING_KEY: "deadbeef",
+      }),
+    ).toThrow(/DISPATCH_SIGNING_KEY/);
+  });
+
   it("throws when ENCRYPTION_KEY is not 64 hex chars", () => {
     expect(() =>
       validateEnvironment({
@@ -46,6 +56,26 @@ describe("environment validation", () => {
     // Compare only the fields we explicitly supplied.
     expect(environment).toMatchObject(validEnvironment);
     expect(Object.isFrozen(environment)).toBe(true);
+  });
+
+  it("defaults to the safe pilot execution profile", () => {
+    const environment = validateEnvironment(validEnvironment);
+    expect(environment.AXON_EXECUTION_PROFILE).toBe("pilot");
+  });
+
+  it("rejects an unknown execution profile", () => {
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, AXON_EXECUTION_PROFILE: "unsafe" }),
+    ).toThrow(/AXON_EXECUTION_PROFILE/);
+  });
+
+  it("accepts and trims an optional matched release id", () => {
+    const environment = validateEnvironment({
+      ...validEnvironment,
+      AXON_RELEASE_ID: " release-2026-09-19 ",
+    });
+
+    expect(environment.AXON_RELEASE_ID).toBe("release-2026-09-19");
   });
 
   it("logger does not throw when called with structured data", () => {

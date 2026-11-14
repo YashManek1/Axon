@@ -14,20 +14,12 @@ export const HealthCheck = async (req, res) => {
     const dbState = mongoose.connection.readyState;
     const dbConnected = dbState === 1;
 
-    // Try a simple query as well (optional, ensures queries work)
-    let userCount = null;
-    try {
-      userCount = await userModel.countDocuments();
-    } catch {
-      // ignore, handled below
-    }
-
     res.status(200).json({
       status: "ok",
       uptime: process.uptime(),
       dbConnected,
       dbState,
-      userCount,
+      userCount: null,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -38,12 +30,14 @@ export const HealthCheck = async (req, res) => {
 
 export const jobStats = async (req, res) => {
   try {
-    const totalJobs = await jobModel.countDocuments();
-    const enabledJobs = await jobModel.countDocuments({ enabled: true });
-    const disabledJobs = await jobModel.countDocuments({ enabled: false });
+    const orgFilter = { orgId: req.user.orgId };
+    const totalJobs = await jobModel.countDocuments(orgFilter);
+    const enabledJobs = await jobModel.countDocuments({ ...orgFilter, enabled: true });
+    const disabledJobs = await jobModel.countDocuments({ ...orgFilter, enabled: false });
 
     // Jobs by org
     const jobsByOrgAgg = await jobModel.aggregate([
+      { $match: { orgId: new mongoose.Types.ObjectId(req.user.orgId) } },
       { $group: { _id: "$orgId", count: { $sum: 1 } } },
     ]);
 
@@ -61,6 +55,7 @@ export const jobStats = async (req, res) => {
     // Jobs run in last 24h
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const jobsRunLast24h = await jobHistoryModel.distinct("jobId", {
+      orgId: req.user.orgId,
       executedAt: { $gte: since },
     });
 
@@ -80,11 +75,14 @@ export const jobStats = async (req, res) => {
 // User Activity
 export const userStats = async (req, res) => {
   try {
-    const totalUsers = await userModel.countDocuments();
+    const totalUsers = await userModel.countDocuments({ orgId: req.user.orgId });
 
     // Get users and job counts per user
-    const users = await userModel.find().select("username email orgId");
+    const users = await userModel
+      .find({ orgId: req.user.orgId })
+      .select("username email orgId");
     const jobs = await jobModel.aggregate([
+      { $match: { orgId: new mongoose.Types.ObjectId(req.user.orgId) } },
       { $group: { _id: "$userId", jobCount: { $sum: 1 } } },
     ]);
     // Map userId to jobCount
@@ -113,7 +111,10 @@ export const userStats = async (req, res) => {
 
 export const orgAnalytics = async (req, res) => {
   try {
-    const orgs = await orgModel.find().select("name description createdAt").lean();
+    const orgs = await orgModel
+      .find({ _id: req.user.orgId })
+      .select("name description createdAt")
+      .lean();
 
     const orgStats = await Promise.all(
       orgs.map(async (org) => {
@@ -147,8 +148,9 @@ export const orgAnalytics = async (req, res) => {
     );
 
     const [totalAgents, onlineAgentsTotal] = await Promise.all([
-      agentModel.countDocuments({ decommissionedAt: null }),
+      agentModel.countDocuments({ orgId: req.user.orgId, decommissionedAt: null }),
       agentModel.countDocuments({
+        orgId: req.user.orgId,
         decommissionedAt: null,
         status: { $in: ["online", "busy"] },
       }),
@@ -170,7 +172,7 @@ export const orgAnalytics = async (req, res) => {
 export const getAllJobs = async (req, res) => {
   try {
     const jobs = await jobModel
-      .find()
+      .find({ orgId: req.user.orgId })
       .populate("userId", "username email")
       .populate("orgId", "name");
     res.json(jobs);
@@ -182,7 +184,10 @@ export const getAllJobs = async (req, res) => {
 
 export const getAllUsers = async (req, res) => {
   try {
-    const users = await userModel.find().populate("orgId", "name");
+    const users = await userModel
+      .find({ orgId: req.user.orgId })
+      .select("username email role orgId createdAt updatedAt")
+      .populate("orgId", "name");
     res.json(users);
   } catch (e) {
     logger.error({ err: e }, "Failed to fetch all users");

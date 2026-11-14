@@ -1,0 +1,13 @@
+
+> devifyx@1.0.0 test
+> vitest run --maxWorkers=1 --hookTimeout=10000
+
+
+ RUN  v4.1.7 C:/My Project/Axon/backend
+
+
+ Test Files  29 passed (29)
+      Tests  232 passed (232)
+   Start at  16:03:49
+   Duration  54.82s (transform 1.11s, setup 13.99s, import 5.84s, tests 30.35s, environment 2ms)
+

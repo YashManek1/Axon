@@ -1,0 +1,145 @@
+{
+  "schema_version": 2,
+  "profile": "axon_b2b",
+  "mode": "dry_run",
+  "batch_id": "synthetic-agent-pipeline-001",
+  "prepared_at": "2026-09-20T10:00:00+05:30",
+  "accounts": [
+    {
+      "account_id": "synthetic-platform-001",
+      "organization": "Synthetic Platform Ltd",
+      "domain": "example.invalid",
+      "observed_at": "2026-09-19T09:00:00+05:30",
+      "jurisdiction": "Test jurisdiction",
+      "entity_type": "Limited company",
+      "channel": "organization_contact_form",
+      "recipient_route": {
+        "route_type": "public organization form",
+        "role": "platform engineering owner"
+      },
+      "planned_at": "2026-09-23T15:00:00+05:30",
+      "message_version": "v1",
+      "evidence": [
+        {
+          "evidence_id": "public-service-update",
+          "kind": "verified_fact",
+          "fact_type": "repeated_procedure",
+          "text": "Synthetic Platform describes a recurring platform migration procedure.",
+          "source_url": "https://example.invalid/services/platform-migration",
+          "observed_at": "2026-09-19T09:00:00+05:30",
+          "is_trigger": true,
+          "source_capture": {
+            "source_url": "https://example.invalid/services/platform-migration",
+            "source_type": "first_party_site",
+            "published_at": "2026-09-18T08:00:00+05:30",
+            "retrieved_at": "2026-09-19T09:00:00+05:30",
+            "excerpt": "Synthetic Platform describes a recurring platform migration procedure.",
+            "excerpt_sha256": "448ead2e7f5458053e53540b00269d9c81d921e49e61238cf8c5b8af59c010e7",
+            "snapshot_sha256": "be8ce837561b6ccff6f954bc0c651381d805643a95fbd88fc5fe1957ddded79e"
+          }
+        },
+        {
+          "evidence_id": "public-incident",
+          "kind": "verified_fact",
+          "fact_type": "observed_pain",
+          "text": "Synthetic Platform reports that a migration handoff failed in a test environment.",
+          "source_url": "https://example.invalid/reports/migration-handoff",
+          "observed_at": "2026-09-19T09:00:00+05:30",
+          "is_trigger": false,
+          "source_capture": {
+            "source_url": "https://example.invalid/reports/migration-handoff",
+            "source_type": "first_party_site",
+            "published_at": "2026-09-17T08:00:00+05:30",
+            "retrieved_at": "2026-09-19T09:00:00+05:30",
+            "excerpt": "Synthetic Platform reports that a migration handoff failed in a test environment.",
+            "excerpt_sha256": "5c4d3b344bd5e24854048a2a5f87b924ee64bdbc609f6d3e1374261169201bcd",
+            "snapshot_sha256": "dc3ca4d138d686bc629258fd2a1bf0edd529d0a2c7ea307fd327f3670500b52f"
+          }
+        },
+        {
+          "evidence_id": "public-owner",
+          "kind": "verified_fact",
+          "fact_type": "buyer_or_budget",
+          "text": "Synthetic Platform names platform engineering as the owner of migration procedure reviews.",
+          "source_url": "https://example.invalid/about/platform-team",
+          "observed_at": "2026-09-19T09:00:00+05:30",
+          "is_trigger": false,
+          "source_capture": {
+            "source_url": "https://example.invalid/about/platform-team",
+            "source_type": "first_party_site",
+            "published_at": "2026-09-16T08:00:00+05:30",
+            "retrieved_at": "2026-09-19T09:00:00+05:30",
+            "excerpt": "Synthetic Platform names platform engineering as the owner of migration procedure reviews.",
+            "excerpt_sha256": "b63ffe44b18dfb58f7764a4aa73555c6dddcd705b29b6496ba048fd8e0dd8b69",
+            "snapshot_sha256": "70194c1a0177644dcda8d382854ea4b493e22d458e40e7157d77280ab8ccc02e"
+          }
+        },
+        {
+          "evidence_id": "public-assessment",
+          "kind": "verified_fact",
+          "fact_type": "safe_assessment_path",
+          "text": "Synthetic Platform invites review of a non-production migration procedure.",
+          "source_url": "https://example.invalid/pilots/migration",
+          "observed_at": "2026-09-19T09:00:00+05:30",
+          "is_trigger": false,
+          "source_capture": {
+            "source_url": "https://example.invalid/pilots/migration",
+            "source_type": "first_party_site",
+            "published_at": "2026-09-18T08:00:00+05:30",
+            "retrieved_at": "2026-09-19T09:00:00+05:30",
+            "excerpt": "Synthetic Platform invites review of a non-production migration procedure.",
+            "excerpt_sha256": "a6ba0afb0091057c89d46d7689d2ff5dfe93045e15e97ab11fa8d7f3682b5bf4",
+            "snapshot_sha256": "3d72f5290d449c8d94bb420ca8d690a96b0e314fecd8a3d58bb80e1123d5c2ae"
+          }
+        },
+        {
+          "evidence_id": "review-hypothesis",
+          "kind": "inference",
+          "text": "repeated handoffs may make execution evidence harder to review",
+          "source_url": "https://example.invalid/services/platform-migration",
+          "observed_at": "2026-09-19T09:00:00+05:30",
+          "is_trigger": false,
+          "fact_type": null,
+          "source_capture": null
+        }
+      ],
+      "score": {
+        "rubric_version": "2026-09-12",
+        "components": {
+          "repeated_procedure": 2,
+          "cost_or_failure_pain": 2,
+          "buyer_access_or_budget": 1,
+          "current_alternative_gap": 0,
+          "safe_assessment_path": 2
+        },
+        "total": 7
+      },
+      "candidate_use_cases": [
+        {
+          "use_case_id": "reviewable-procedure-assessment",
+          "title": "Review one recurring migration procedure",
+          "problem_hypothesis": "repeated handoffs may make execution evidence harder to review",
+          "owner_roles": [
+            "platform engineering owner",
+            "operations owner"
+          ],
+          "supporting_evidence_ids": [
+            "public-service-update",
+            "public-incident",
+            "public-owner",
+            "public-assessment",
+            "review-hypothesis"
+          ],
+          "fit_score": 8,
+          "capability_id": "assessment_evidence_v1"
+        }
+      ],
+      "suppression": {
+        "checked": true,
+        "status": "clear",
+        "checked_at": "2026-09-20T09:30:00+05:30",
+        "reason": null
+      }
+    }
+  ]
+}

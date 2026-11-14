@@ -22,6 +22,14 @@ function toIsoDate(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+function defaultExportRange() {
+  const now = Date.now();
+  return {
+    start: toIsoDate(new Date(now - 7 * 86_400_000)),
+    end: toIsoDate(new Date(now)),
+  };
+}
+
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     COMPLETED: "completed", FAILED: "failed", TIMEOUT: "timeout",
@@ -37,39 +45,39 @@ function ExitCode({ code }: { code?: number | null }) {
 
 function ExpandedRow({ entry }: { entry: AuditEntry }) {
   return (
-    <div style={{ padding: "16px 20px", background: "var(--term-bg)", borderTop: "1px solid var(--border)", fontFamily: "var(--font-mono)", fontSize: 13 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", gap: "6px 16px" }}>
-        <span style={{ color: "var(--text-faint)" }}>audit_id</span>
-        <span style={{ color: "var(--text-faint)" }}>{entry._id} <span style={{ color: "var(--ok)" }}>(immutable)</span></span>
-        <span style={{ color: "var(--text-faint)" }}>command</span>
-        <span style={{ color: "var(--text)", wordBreak: "break-all" }}>{entry.command}</span>
-        <span style={{ color: "var(--text-faint)" }}>trigger</span>
-        <span style={{ color: "var(--text)" }}>{entry.triggerType}</span>
-        <span style={{ color: "var(--text-faint)" }}>agent</span>
-        <span style={{ color: "var(--text)" }}>{String(entry.agentId || "—")}</span>
-        <span style={{ color: "var(--text-faint)" }}>started</span>
-        <span style={{ color: "var(--text)" }}>{fmtTs(entry.startedAt)}</span>
+    <div className="px-5 py-4 bg-term-bg border-t border-edge font-mono text-sm">
+      <div className="grid gap-1.5 gap-x-4" style={{ gridTemplateColumns: "130px 1fr" }}>
+        <span className="text-muted">audit_id</span>
+        <span className="text-muted">{entry._id} <span className="text-success">(immutable)</span></span>
+        <span className="text-muted">command</span>
+        <span className="text-ink break-all">{entry.command}</span>
+        <span className="text-muted">trigger</span>
+        <span className="text-ink">{entry.triggerType}</span>
+        <span className="text-muted">agent</span>
+        <span className="text-ink">{String(entry.agentId || "—")}</span>
+        <span className="text-muted">started</span>
+        <span className="text-ink">{fmtTs(entry.startedAt)}</span>
         {entry.completedAt && (
           <>
-            <span style={{ color: "var(--text-faint)" }}>completed</span>
-            <span style={{ color: "var(--text)" }}>{fmtTs(entry.completedAt)}</span>
+            <span className="text-muted">completed</span>
+            <span className="text-ink">{fmtTs(entry.completedAt)}</span>
           </>
         )}
         {entry.stdoutSummary && (
           <>
-            <span style={{ color: "var(--text-faint)" }}>stdout</span>
-            <span style={{ color: "var(--ok)", whiteSpace: "pre-wrap" }}>{entry.stdoutSummary}</span>
+            <span className="text-muted">stdout</span>
+            <span className="text-success whitespace-pre-wrap">{entry.stdoutSummary}</span>
           </>
         )}
         {entry.stderrSummary && (
           <>
-            <span style={{ color: "var(--text-faint)" }}>stderr</span>
-            <span style={{ color: "var(--err)", whiteSpace: "pre-wrap" }}>{entry.stderrSummary}</span>
+            <span className="text-muted">stderr</span>
+            <span className="text-danger whitespace-pre-wrap">{entry.stderrSummary}</span>
           </>
         )}
-        <span style={{ color: "var(--text-faint)" }}>result</span>
+        <span className="text-muted">result</span>
         <span>
-          <span style={{ color: entry.exitCode === 0 ? "var(--ok)" : "var(--err)" }}>
+          <span className={entry.exitCode === 0 ? "text-success" : "text-danger"}>
             exit {entry.exitCode ?? "—"}
           </span>
           {" · "}{fmtDur(entry.durationMs)}
@@ -95,8 +103,9 @@ export default function AuditPage() {
   const [query,     setQuery]     = useState("");
   const [expanded,  setExpanded]  = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [exportStart, setExportStart] = useState(toIsoDate(new Date(Date.now() - 7 * 86_400_000)));
-  const [exportEnd,   setExportEnd]   = useState(toIsoDate(new Date()));
+  const [exportRange] = useState(defaultExportRange);
+  const [exportStart, setExportStart] = useState(exportRange.start);
+  const [exportEnd,   setExportEnd]   = useState(exportRange.end);
   const [showExport,  setShowExport]  = useState(false);
 
   const filtered = entries.filter((e) => {
@@ -125,103 +134,104 @@ export default function AuditPage() {
 
   return (
     <>
-      <div className="page-head">
+      <div className="flex items-start justify-between gap-8 mb-8">
         <div>
-          <h1>Audit log</h1>
-          <p>Append-only record of every action taken in the control plane</p>
+          <h1 className="text-2xl font-bold text-ink">Audit log</h1>
+          <p className="text-muted mt-2">Append-only record of every action taken in the control plane</p>
         </div>
-        <div className="actions">
-          <button className="btn btn-ghost btn-sm" onClick={() => setShowExport((v) => !v)}>
+        <div className="flex items-center gap-2">
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm text-muted transition-all hover:text-ink hover:bg-surface-2 text-sm" onClick={() => setShowExport((v) => !v)}>
             <Download size={14} /> Export
           </button>
         </div>
       </div>
 
       {showExport && (
-        <div className="panel" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
-          <div className="field">
-            <label className="label" style={{ fontSize: "var(--t-xs)" }}>From</label>
-            <input className="input" type="date" value={exportStart} onChange={(e) => setExportStart(e.target.value)} style={{ height: 32, width: 160 }} />
+        <div className="bg-surface border border-edge rounded-md p-4 mb-3.5 flex items-end gap-3 flex-wrap">
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">From</label>
+            <input className="bg-bg border border-edge text-ink rounded-sm h-8 px-3 text-sm" type="date" value={exportStart} onChange={(e) => setExportStart(e.target.value)} style={{ width: 160 }} />
           </div>
-          <div className="field">
-            <label className="label" style={{ fontSize: "var(--t-xs)" }}>To</label>
-            <input className="input" type="date" value={exportEnd}   onChange={(e) => setExportEnd(e.target.value)}   style={{ height: 32, width: 160 }} />
+          <div>
+            <label className="block text-xs font-medium text-ink-2 mb-1.5">To</label>
+            <input className="bg-bg border border-edge text-ink rounded-sm h-8 px-3 text-sm" type="date" value={exportEnd}   onChange={(e) => setExportEnd(e.target.value)}   style={{ width: 160 }} />
           </div>
-          <button className="btn btn-primary btn-sm" disabled={exporting} onClick={handleExport}>
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm bg-primary text-white transition-all hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-sm" disabled={exporting} onClick={handleExport}>
             {exporting ? <><Loader2 size={13} style={{ animation: "spin 0.8s linear infinite" }} /> Exporting…</> : <><Download size={13} /> Download JSON</>}
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setShowExport(false)}>Cancel</button>
+          <button className="inline-flex items-center justify-center gap-2 font-ui font-medium h-8 px-3 rounded-sm text-muted transition-all hover:text-ink hover:bg-surface-2 text-sm" onClick={() => setShowExport(false)}>Cancel</button>
         </div>
       )}
 
-      <div className="banner info" style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text-muted)" }}>
-        <Lock size={18} style={{ color: "var(--accent)" }} />
-        <span className="grow">
+      <div className="bg-surface-2 border border-edge rounded-md px-4 py-3 flex items-center gap-3 mb-4 text-muted">
+        <Lock size={18} className="text-primary flex-shrink-0" />
+        <span className="flex-1">
           Records are append-only by policy — immutable fields enforced in application code. Not cryptographically signed in v1.
         </span>
       </div>
 
-      <div className="filterbar">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <input
-          className="input"
-          style={{ maxWidth: 260, height: 32 }}
+          className="bg-bg border border-edge text-ink rounded-sm h-8 px-3 text-sm"
+          style={{ maxWidth: 260 }}
           placeholder="Search command…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <div className="seg">
-          {(["all", "COMPLETED", "FAILED", "TIMEOUT", "PENDING"] as StatusFilter[]).map((f) => (
-            <button key={f} className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
+        <div className="flex items-center gap-0 border border-edge rounded-sm bg-bg overflow-x-auto max-w-full">
+          {(["all", "COMPLETED", "FAILED", "TIMEOUT", "PENDING"] as StatusFilter[]).map((f, idx) => (
+            <button key={f} className={`px-3 py-1.5 text-xs font-medium transition-all ${
+              filter === f ? "bg-primary text-white" : "text-muted hover:text-ink"
+            } ${idx > 0 ? "border-l border-edge" : ""}`} onClick={() => setFilter(f)}>
               {f === "all" ? "All" : f}
             </button>
           ))}
         </div>
-        <span className="grow" />
-        <span className="dep-line">{filtered.length} records</span>
+        <span className="flex-1" />
+        <span className="text-xs text-muted">{filtered.length} records</span>
       </div>
 
-      <div className="panel">
-        <div className="table-wrap">
-        <table className="tbl">
+      <div className="bg-surface border border-edge rounded-md overflow-hidden">
+        <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Command</th>
-              <th>Trigger</th>
-              <th>Agent</th>
-              <th>Status</th>
-              <th>Duration</th>
-              <th>Exit</th>
+              <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Time</th>
+              <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Command</th>
+              <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Trigger</th>
+              <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Agent</th>
+              <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Status</th>
+              <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Duration</th>
+              <th className="text-left font-ui text-xs font-bold uppercase tracking-wider text-muted px-3.5 pb-2.5 border-b border-edge">Exit</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-faint)", height: 72 }}>Loading…</td></tr>
+              <tr><td colSpan={7} className="text-center text-muted h-18">Loading…</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--text-faint)", height: 72 }}>No records found</td></tr>
+              <tr><td colSpan={7} className="text-center text-muted h-18">No records found</td></tr>
             ) : (
               filtered.map((entry) => (
                 <Fragment key={entry._id}>
                   <tr
-                    className="clickable"
-                    style={{ cursor: "pointer" }}
+                    className="cursor-pointer hover:bg-surface-2"
                     onClick={() => setExpanded(expanded === entry._id ? null : entry._id)}
                   >
-                    <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{fmtTs(entry.startedAt)}</td>
-                    <td style={{ color: "var(--text)", maxWidth: 280 }}>
-                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <td className="font-mono text-xs whitespace-nowrap px-3.5 py-2.5 border-b border-edge text-ink-2">{fmtTs(entry.startedAt)}</td>
+                    <td className="text-ink max-w-70 px-3.5 py-2.5 border-b border-edge text-ink-2">
+                      <span className="block overflow-hidden text-ellipsis whitespace-nowrap">
                         {entry.command}
                       </span>
                     </td>
-                    <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{entry.triggerType}</td>
-                    <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{String(entry.agentId || "—").slice(-8)}</td>
-                    <td>{statusBadge(entry.status)}</td>
-                    <td className="mono" style={{ fontSize: "var(--t-xs)" }}>{fmtDur(entry.durationMs)}</td>
-                    <td><ExitCode code={entry.exitCode} /></td>
+                    <td className="font-mono text-xs whitespace-nowrap px-3.5 py-2.5 border-b border-edge text-ink-2">{entry.triggerType}</td>
+                    <td className="font-mono text-xs whitespace-nowrap px-3.5 py-2.5 border-b border-edge text-ink-2">{String(entry.agentId || "—").slice(-8)}</td>
+                    <td className="px-3.5 py-2.5 border-b border-edge text-ink-2">{statusBadge(entry.status)}</td>
+                    <td className="font-mono text-xs whitespace-nowrap px-3.5 py-2.5 border-b border-edge text-ink-2">{fmtDur(entry.durationMs)}</td>
+                    <td className="px-3.5 py-2.5 border-b border-edge text-ink-2"><ExitCode code={entry.exitCode} /></td>
                   </tr>
                   {expanded === entry._id && (
                     <tr>
-                      <td colSpan={7} style={{ padding: 0, height: "auto" }}>
+                      <td colSpan={7} className="p-0 h-auto">
                         <ExpandedRow entry={entry} />
                       </td>
                     </tr>

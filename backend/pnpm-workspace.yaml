@@ -2,3 +2,4 @@ allowBuilds:
   bcrypt: true
   mongodb-memory-server: true
   msgpackr-extract: true
+  protobufjs: set this to true or false

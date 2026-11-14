@@ -1,4 +1,5 @@
 import { redisConnection } from "../config/queue.js";
+import { acquireJobLock } from "./distributedLock.js";
 
 const validStates = new Set([
   "PENDING",
@@ -7,14 +8,12 @@ const validStates = new Set([
   "COMPLETED",
   "FAILED",
   "TIMEOUT",
+  "CANCELLED",
+  "UNKNOWN",
 ]);
 
 function stateKey(jobId) {
   return `job:state:${jobId}`;
-}
-
-function lockKey(jobId) {
-  return `job:lock:${jobId}`;
 }
 
 export async function setJobState(jobId, state) {
@@ -63,19 +62,6 @@ export async function checkDependenciesMet(jobId, dependencyIds = []) {
   };
 }
 
-export async function acquireExecutionSlot(jobId, workerId, ttlSeconds = 60) {
-  const result = await redisConnection.set(
-    lockKey(jobId),
-    workerId,
-    "NX",
-    "EX",
-    ttlSeconds,
-  );
-
-  if (result === "OK") {
-    return { acquired: true, existingWorker: null };
-  }
-
-  const existingWorker = await redisConnection.get(lockKey(jobId));
-  return { acquired: false, existingWorker };
+export async function acquireExecutionSlot(resourceKey, workerId, ttlSeconds = 60) {
+  return acquireJobLock(resourceKey, workerId, ttlSeconds);
 }

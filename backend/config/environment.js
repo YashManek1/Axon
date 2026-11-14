@@ -20,17 +20,34 @@ const environmentSchema = z.object({
       /^[a-fA-F0-9]{64}$/,
       "ENCRYPTION_KEY must be exactly 64 hex characters",
     ),
+  DISPATCH_SIGNING_KEY: z
+    .string()
+    .regex(
+      /^[a-fA-F0-9]{32,}$/,
+      "DISPATCH_SIGNING_KEY must be at least 32 hex characters",
+    ),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
+  AXON_EXECUTION_PROFILE: z.enum(["pilot", "legacy"]).default("pilot"),
+  AXON_RELEASE_ID: z.string().trim().min(1).optional(),
   EMAIL_SMTP_HOST: z.string().optional(),
   EMAIL_SMTP_PORT: z.string().default("587"),
   EMAIL_SMTP_USER: z.string().optional(),
   EMAIL_SMTP_PASS: z.string().optional(),
   EMAIL_FROM:      z.string().optional(),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
+  PROMETHEUS_BEARER_TOKEN: z.string().optional(),
+  // Comma-separated list of browser origins allowed to send credentialed
+  // requests. Never use a wildcard here: `*` with credentials is rejected by
+  // browsers, and reflecting arbitrary origins disables same-origin protection.
+  CORS_ALLOWED_ORIGINS: z
+    .string()
+    .default("http://localhost:5173,http://localhost:4173"),
 });
 
 function formatEnvironmentError(error) {

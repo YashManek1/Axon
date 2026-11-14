@@ -26,4 +26,33 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/react") || id.includes("node_modules/react-dom") || id.includes("node_modules/react-router-dom")) {
+            return "vendor";
+          }
+          if (id.includes("node_modules/framer-motion")) {
+            return "motion";
+          }
+          if (id.includes("node_modules/recharts")) {
+            return "charts";
+          }
+          if (id.includes("node_modules/@tanstack/react-query")) {
+            return "query";
+          }
+          if (id.includes("node_modules/lucide-react")) {
+            return "icons";
+          }
+          if (id.includes("src/pages/HomePage") || id.includes("src/pages/home-page.css")) {
+            return "home-page";
+          }
+          if (id.includes("src/pages/dashboard/JobDetailPage") || id.includes("src/pages/dashboard/ReconciliationPanel") || id.includes("src/pages/dashboard/SavedRunEvidence")) {
+            return "job-detail";
+          }
+        },
+      },
+    },
+  },
 });

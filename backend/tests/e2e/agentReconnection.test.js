@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { EventEmitter } from "events";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -5,9 +6,17 @@ let redisConnection;
 let modules;
 
 class MockSocket extends EventEmitter {
-  constructor() {
+  constructor(agentId, orgId, id = "reconnect-socket") {
     super();
     this.emittedCommands = [];
+    this.id = id;
+    this.connected = true;
+    this.agentId = String(agentId);
+    this.orgId = String(orgId);
+    this.clientType = "agent";
+    this.authGeneration = 0;
+    this.protocolVersions = [2];
+    this.releaseId = process.env.AXON_RELEASE_ID;
   }
 
   emit(eventName, payload) {
@@ -21,6 +30,11 @@ class MockSocket extends EventEmitter {
 
   off(eventName, listener) {
     return this.removeListener(eventName, listener);
+  }
+
+  disconnect() {
+    this.connected = false;
+    this.emit("disconnect");
   }
 }
 
@@ -43,6 +57,10 @@ beforeAll(async () => {
     { default: Job },
     { default: Organization },
     { default: User },
+    { default: JobRun },
+    jobRuns,
+    jobRunPreviews,
+    agentLifecycle,
   ] = await Promise.all([
     import("../../workers/jobWorker.js"),
     import("../../services/dagStateManager.js"),
@@ -52,6 +70,10 @@ beforeAll(async () => {
     import("../../models/job.js"),
     import("../../models/organization.js"),
     import("../../models/user.js"),
+    import("../../models/jobRun.js"),
+    import("../../services/jobRunService.js"),
+    import("../../services/jobRunPreviewService.js"),
+    import("../../services/agentConnectionLifecycle.js"),
   ]);
 
   modules = {
@@ -63,11 +85,15 @@ beforeAll(async () => {
     Job,
     Organization,
     User,
+    JobRun,
+    jobRuns,
+    jobRunPreviews,
+    agentLifecycle,
   };
 });
 
 beforeEach(async () => {
-  await redisConnection.flushall();
+  await redisConnection.flushdb();
 });
 
 async function createFixture() {
@@ -88,6 +114,7 @@ async function createFixture() {
     apiKey: "agent-key",
     status: "online",
     socketId: "reconnect-socket",
+    allowedCommands: ["sleep 60"],
   });
   const job = await modules.Job.create({
     userId: user._id,
@@ -96,6 +123,8 @@ async function createFixture() {
     type: "shell",
     schedule: "* * * * *",
     payload: { command: "sleep 60" },
+    targetAgentId: agent._id,
+    enabled: false,
   });
 
   return { org, user, agent, job };
@@ -113,56 +142,83 @@ async function waitForSocketCommand(socket) {
 }
 
 describe("agent reconnection e2e", () => {
-  it("Agent reconnection does not lose running job state", async () => {
+  it("disconnect records an unknown outcome without redispatch", async () => {
     const { org, user, agent, job } = await createFixture();
-    const socket = new MockSocket();
+    const socket = new MockSocket(agent._id, org._id);
 
     modules.worker.configureJobWorker({
       sockets: { sockets: new Map([["reconnect-socket", socket]]) },
     });
 
-    await modules.dagStateManager.setJobState(job._id, "RUNNING");
+    const preview = await modules.jobRunPreviews.createJobRunPreview({
+      orgId: org._id,
+      actorId: user._id,
+      jobId: job._id,
+    });
+    const created = await modules.jobRuns.createApprovedShellRun({
+      orgId: org._id,
+      userId: user._id,
+      jobId: job._id,
+      requestKey: randomUUID(),
+      previewId: preview.previewId,
+      previewHash: preview.previewHash,
+      ipAddress: "127.0.0.1",
+      userAgent: "vitest",
+    });
+    await modules.jobRuns.markRunQueued(created.run.runId);
+    const queueData = modules.jobRuns.buildQueueData(created.run);
 
     const processorPromise = modules.worker.jobProcessor({
-      id: "running-job",
+      id: queueData.attemptId,
       name: "dispatch-job",
       queueName: "immediate-jobs",
-      data: {
-        jobId: job._id,
-        payload: job.payload,
-        orgId: org._id,
-        triggeredBy: {
-          userId: user._id,
-          ipAddress: "127.0.0.1",
-          userAgent: "vitest",
-        },
-        triggerType: "MANUAL_API",
-        dependsOn: [],
-      },
+      data: queueData,
     });
 
     await waitForSocketCommand(socket);
     await expect(modules.dagStateManager.getJobState(job._id)).resolves.toBe("RUNNING");
 
     socket.emit("disconnect");
-    await expect(processorPromise).resolves.toMatchObject({
-      status: "failure",
-      jobId: expect.anything(),
+    await expect(processorPromise).rejects.toMatchObject({
+      code: "EXECUTION_OUTCOME_UNKNOWN",
     });
 
+    const persistedRun = await modules.JobRun.findOne({ runId: created.run.runId });
+    expect(persistedRun).toMatchObject({ status: "UNKNOWN", requiresReview: true });
+    expect(socket.emittedCommands).toHaveLength(1);
     const audit = await modules.AuditLog.findOne({ jobId: job._id });
-    expect(audit.status).toBe("FAILED");
-    expect(audit.stderrSummary).toContain("AGENT_DISCONNECTED");
+    expect(audit).toMatchObject({
+      status: "UNKNOWN",
+      outcome: "UNKNOWN",
+      reasonCode: "EXECUTION_OUTCOME_UNKNOWN",
+      runId: created.run.runId,
+      targetExecutionId: queueData.targetExecutionId,
+      attemptId: queueData.attemptId,
+      operationId: queueData.operationId,
+    });
+    expect(audit.stderrSummary).toContain("disconnected");
 
+    const reconnectedSocket = new MockSocket(agent._id, org._id, "reconnect-socket-2");
+    await expect(
+      modules.agentLifecycle.attachAgentConnection(reconnectedSocket),
+    ).resolves.toBe(true);
+    const reconnectIdentity = {
+      socketId: reconnectedSocket.id,
+      tokenVersion: reconnectedSocket.authGeneration,
+      connectionGeneration: reconnectedSocket.agent.connectionGeneration,
+    };
     await modules.telemetryBuffer.recordHeartbeat(agent._id, {
       os: "linux",
       arch: "x64",
       cpuLoad: 4,
       ramTotal: 1024,
       ramUsed: 128,
-    });
+    }, reconnectIdentity);
 
-    const telemetry = await modules.telemetryBuffer.getAgentTelemetry(agent._id);
+    const telemetry = await modules.telemetryBuffer.getAgentTelemetry(
+      agent._id,
+      reconnectIdentity,
+    );
     expect(telemetry.status).toBe("ONLINE");
   });
 });

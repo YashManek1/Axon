@@ -7,12 +7,12 @@ const stats = [
 
 export default function ProblemStrip() {
   return (
-    <section style={{ paddingBottom: 24 }}>
-      <div className="wrap stripgrid">
+    <section className="pb-6">
+      <div className="max-w-[1200px] mx-auto px-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => (
-          <div className="statcard" key={stat.label}>
-            <div className="big" style={{ color: stat.color }}>{stat.value}</div>
-            <div className="lab">{stat.label}</div>
+          <div className="bg-surface border border-edge rounded-md p-5.5" key={stat.label}>
+            <div className="text-2xl font-bold tabular-nums tracking-tight mb-1.5" style={{ color: stat.color }}>{stat.value}</div>
+            <div className="text-sm text-label leading-tight">{stat.label}</div>
           </div>
         ))}
       </div>

@@ -8,7 +8,7 @@ const reasons = [
   },
   {
     title: "You have an enterprise customer in your pipeline.",
-    body: "They'll ask your security team: 'What access do you have to our servers, and can we review it?' Right now the honest answer is 'SSH with root.' That answer does not close enterprise deals in 2024. Axon gives you an answer IT departments cannot reject.",
+    body: "They'll ask your security team: 'What access do you have to our servers, and can we review it?' Right now the honest answer is 'SSH with root.' That answer does not close enterprise deals. Axon gives you an answer IT departments cannot reject.",
     tagLabel: "Deal-blocking",
     tagColor: "var(--danger)",
     tagBackground: "rgba(239,68,68,0.1)",
@@ -24,18 +24,22 @@ const reasons = [
 
 export default function WhyNow() {
   return (
-    <section className="band">
-      <div className="wrap">
-        <div className="sec-head">
-          <h2>You've already hit these problems.<br />Your team just hasn't fixed them yet.</h2>
+    <section className="py-24 border-t border-edge-subtle">
+      <div className="max-w-[1200px] mx-auto px-8">
+        <div className="mb-12">
+          <h2 className="text-4xl font-bold text-ink tracking-tight mb-3 leading-tight">
+            You've already hit these problems.
+            <br />
+            Your team just hasn't fixed them yet.
+          </h2>
         </div>
-        <div className="whygrid">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {reasons.map((reason) => (
-            <div className="why" key={reason.title}>
-              <h3>{reason.title}</h3>
-              <p>{reason.body}</p>
+            <div className="bg-surface border border-edge rounded-md p-7 flex flex-col" key={reason.title}>
+              <h3 className="text-lg font-semibold text-ink mb-3">{reason.title}</h3>
+              <p className="text-sm text-ink-2 leading-relaxed mb-4 flex-grow">{reason.body}</p>
               <span
-                className="utag"
+                className="inline-flex font-ui text-xs font-semibold uppercase tracking-wider px-2.25 py-1 rounded-sm w-fit"
                 style={{ color: reason.tagColor, background: reason.tagBackground }}
               >
                 {reason.tagLabel}

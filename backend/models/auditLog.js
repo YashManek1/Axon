@@ -1,6 +1,23 @@
 import mongoose from "mongoose";
 
-const immutableFields = ["startedAt", "jobId", "orgId", "triggeredBy"];
+// `command` is covered by the hash chain, so it must be immutable too: if it
+// could change after creation the chain would either break on legitimate writes
+// or fail to protect the single field the audit promise rests on.
+const immutableFields = [
+  "startedAt",
+  "jobId",
+  "orgId",
+  "triggeredBy",
+  "command",
+  "agentId",
+  "runId",
+  "targetExecutionId",
+  "attemptId",
+  "operationId",
+  "canonicalVersion",
+  "prevHash",
+  "recordHash",
+];
 
 const auditLogSchema = new mongoose.Schema({
   jobId: {
@@ -35,9 +52,20 @@ const auditLogSchema = new mongoose.Schema({
     ref: "Agent",
     required: false,
   },
+  runId: { type: String, required: false, index: true },
+  targetExecutionId: { type: String, required: false },
+  attemptId: { type: String, required: false },
+  operationId: { type: String, required: false },
+  canonicalVersion: { type: Number, enum: [2], required: false },
+  outcome: {
+    type: String,
+    enum: ["COMPLETED", "REJECTED", "TIMED_OUT", "CANCELLED", "UNKNOWN"],
+    required: false,
+  },
+  reasonCode: { type: String, required: false },
   status: {
     type: String,
-    enum: ["PENDING", "DISPATCHED", "COMPLETED", "FAILED", "TIMEOUT", "CANCELLED"],
+    enum: ["PENDING", "DISPATCHED", "DISPATCHED_ACKED", "COMPLETED", "FAILED", "TIMEOUT", "CANCELLED", "SKIPPED", "UNKNOWN"],
     required: true,
   },
   startedAt: { type: Date, default: Date.now, index: true },
@@ -47,6 +75,8 @@ const auditLogSchema = new mongoose.Schema({
   stdoutSummary: { type: String, maxlength: 10000, required: false },
   stderrSummary: { type: String, maxlength: 10000, required: false },
   metadata: { type: mongoose.Schema.Types.Mixed, required: false },
+  prevHash: { type: String, required: true },
+  recordHash: { type: String, required: true },
 });
 
 auditLogSchema.pre("save", function preventImmutableChanges(next) {

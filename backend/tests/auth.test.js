@@ -26,7 +26,7 @@ function expectUserShape(user, overrides = {}) {
       username: overrides.username ?? expect.any(String),
       email: overrides.email ?? expect.any(String),
       orgId: expect.any(String),
-      role: "user",
+      role: overrides.role ?? "admin", // First user in org is admin (owner)
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       __v: expect.any(Number),
@@ -64,6 +64,26 @@ describe("auth routes", () => {
     expect(response.body).toEqual({
       success: false,
       message: "User already exists",
+    });
+  });
+
+  it("POST /user/register with existing org name returns 409 and does NOT join that org", async () => {
+    // Create first org and user
+    await request(app).post("/user/register").send(validUser);
+
+    // Try to register a different user with the same org name
+    const response = await request(app).post("/user/register").send({
+      username: "Different User",
+      email: "different@example.com",
+      password: "correct-password",
+      orgName: validUser.orgName, // Same org name
+      orgDescription: "Attempt to join existing org",
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      success: false,
+      message: "An organization with that name already exists",
     });
   });
 

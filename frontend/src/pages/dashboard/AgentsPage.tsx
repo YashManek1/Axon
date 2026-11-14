@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { Plus, Key, Trash2, WifiOff } from "lucide-react";
 import { useAgents } from "../../hooks/useDashboardData";
@@ -16,15 +17,15 @@ function meterClass(pct: number): string {
 
 function AgentCard({ agent }: { agent: AgentData }) {
   const si      = agent.systemInfo || {};
-  const ramPct  = si.ramTotal ? Math.round((si.ramUsed ?? 0) / si.ramTotal * 100) : 0;
-  const cpuPct  = si.cpuLoad ?? 0;
-  const online  = agent.status !== "offline";
+  const ramPct  = si.ramTotal && typeof si.ramUsed === "number" ? Math.round((si.ramUsed / si.ramTotal) * 100) : null;
+  const cpuPct  = typeof si.cpuLoad === "number" ? Math.round(si.cpuLoad) : null;
+  const online  = agent.status === "online";
   const lastSeen = agent.lastSeen
     ? new Date(agent.lastSeen).toLocaleTimeString()
-    : "never";
+    : "Not reported";
 
   return (
-    <div className="panel agent-card" style={{ opacity: online ? 1 : 0.65 }}>
+    <div className="panel agent-card" style={{ opacity: agent.status === "offline" ? 0.78 : 1 }}>
       <div className="top">
         <span
           className="live-dot"
@@ -35,19 +36,19 @@ function AgentCard({ agent }: { agent: AgentData }) {
           {agent.status}
         </span>
       </div>
-      <div className="meta">{si.hostname || "—"} · {si.os || "Linux"} · {si.arch || "x64"}</div>
-      <div className="meta" style={{ marginTop: -8 }}>last seen {lastSeen}</div>
+      <div className="meta">{si.hostname || "Not reported"} · {si.os || "Not reported"} · {si.arch || "Not reported"}</div>
+      <div className="meta" style={{ marginTop: -8 }}>last reported {lastSeen}</div>
 
       <div className="bars">
         <div className="agent-metric">
           <div className="ml">CPU</div>
-          <div className="mv">{cpuPct}%</div>
-          <div className="meter"><i className={meterClass(cpuPct)} style={{ width: `${cpuPct}%` }} /></div>
+          <div className="mv">{cpuPct === null ? "Not reported" : `${cpuPct}%`}</div>
+          {cpuPct !== null && <div className="meter"><i className={meterClass(cpuPct)} style={{ width: `${cpuPct}%` }} /></div>}
         </div>
         <div className="agent-metric">
           <div className="ml">RAM</div>
-          <div className="mv">{si.ramUsed?.toFixed(1) ?? 0} / {si.ramTotal ?? 0} GB</div>
-          <div className="meter"><i className={meterClass(ramPct)} style={{ width: `${ramPct}%` }} /></div>
+          <div className="mv">{ramPct === null ? "Not reported" : `${si.ramUsed?.toFixed(1)} / ${si.ramTotal} GB`}</div>
+          {ramPct !== null && <div className="meter"><i className={meterClass(ramPct)} style={{ width: `${ramPct}%` }} /></div>}
         </div>
       </div>
     </div>
@@ -55,7 +56,8 @@ function AgentCard({ agent }: { agent: AgentData }) {
 }
 
 export default function AgentsPage() {
-  const { data: agents = [], isLoading } = useAgents();
+  const agentsQuery = useAgents();
+  const agents = agentsQuery.data ?? [];
   const { user }      = useAuthStore();
   const queryClient   = useQueryClient();
   const [showForm, setShowForm] = useState(false);
@@ -99,21 +101,21 @@ export default function AgentsPage() {
     <>
       <div className="page-head">
         <div>
-          <h1>Agents</h1>
-          <p>Connectivity, resource usage, and status across the fleet</p>
+          <h1>Servers</h1>
+          <p>Review registered server records and their most recently reported telemetry.</p>
         </div>
         <div className="actions">
-          <button className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            <Plus size={14} /> Register agent
-          </button>
+          {user?.role === "admin" && <button className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
+            <Plus size={14} /> Register a server
+          </button>}
         </div>
       </div>
 
       {offlineCount > 0 && (
-        <div className="banner warn">
+        <div className="banner warn" role="alert">
           <WifiOff size={18} />
           <span className="grow">
-            <b>{offlineCount} agent{offlineCount > 1 ? "s" : ""}</b> offline — heartbeat lost. Scheduled jobs targeting them will queue.
+            <b>{offlineCount} server{offlineCount > 1 ? "s" : ""}</b> report a connection unavailable. Inspect the server before running an operation.
           </span>
         </div>
       )}
@@ -121,33 +123,31 @@ export default function AgentsPage() {
       {showForm && (
         <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: "var(--t-base)", fontWeight: 600, color: "var(--text)", marginBottom: 14 }}>
-            Register a new agent
+            Register a server
           </div>
           <form onSubmit={handleRegister}>
             <div className="grid-auto" style={{ marginBottom: 12 }}>
               <div className="field">
-                <label className="label">Agent name</label>
-                <input className="input" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="prod-us-east" required />
+                <label className="label" htmlFor="agent-name">Server name</label>
+                <input id="agent-name" name="agentName" className="input" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="nonprod-web-01" required />
               </div>
               <div className="field">
-                <label className="label">Hardware UUID</label>
-                <input className="input mono" value={hwUuid} onChange={(e) => setHwUuid(e.target.value)} placeholder="auto-detected on install" />
+                <label className="label" htmlFor="agent-hw-uuid">Hardware UUID</label>
+                <input id="agent-hw-uuid" name="hardwareUuid" className="input mono" value={hwUuid} onChange={(e) => setHwUuid(e.target.value)} placeholder="Provided by setup instructions" />
               </div>
               <div className="field">
-                <label className="label">Org API key</label>
-                <input className="input mono" type="password" value={orgApiKey} onChange={(e) => setOrgApiKey(e.target.value)} placeholder="axk_…" required />
+                <label className="label" htmlFor="agent-org-key">Org API key</label>
+                <input id="agent-org-key" name="orgApiKey" className="input mono" type="password" value={orgApiKey} onChange={(e) => setOrgApiKey(e.target.value)} placeholder="axk_…" required autoComplete="off" />
+                <p className="text-xs text-muted mt-1">
+                  Don't have one?{" "}
+                  <Link to="/dashboard/settings" className="text-primary hover:underline">
+                    Create an org API key in Settings
+                  </Link>
+                  .
+                </p>
               </div>
             </div>
-            <div className="term" style={{ fontSize: 12, marginBottom: 12 }}>
-              <div className="term-body" style={{ padding: "10px 14px" }}>
-                <span style={{ color: "var(--accent)" }}>$</span>
-                {" curl -sSL https://install.axon.run | sh\n"}
-                <span style={{ color: "var(--text-faint)" }}># /etc/axon-agent/config.env{"\n"}</span>
-                {"SERVER_URL=https://api.axon.run\nAGENT_ID=ag_01H...\nAGENT_API_KEY=axk_...\n"}
-                <span style={{ color: "var(--accent)" }}>$</span>
-                {" systemctl enable --now axon-agent"}
-              </div>
-            </div>
+            <p className="hint" style={{ marginBottom: 12 }}>Use the configured environment's agent setup instructions. This workspace does not provide an installer command or endpoint.</p>
             <div className="row gap-2">
               <button className="btn btn-primary btn-sm" type="submit" disabled={registering}>
                 {registering ? "Registering…" : "Register →"}
@@ -158,25 +158,33 @@ export default function AgentsPage() {
         </div>
       )}
 
-      {isLoading ? (
-        <div className="grid-3">
+      {agentsQuery.isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {[1, 2, 3].map((i) => (
             <div key={i} className="panel" style={{ height: 180 }}>
               <div className="skel" style={{ height: "100%", borderRadius: "var(--r-md)" }} />
             </div>
           ))}
         </div>
+      ) : agentsQuery.isError && agents.length === 0 ? (
+        <div className="panel empty" role="alert">
+          <div className="ic"><WifiOff size={22} /></div>
+          <h3>{(agentsQuery.error as { response?: { status?: number } })?.response?.status === 401 || (agentsQuery.error as { response?: { status?: number } })?.response?.status === 403 ? "Servers are not available to this role" : "Server records are unavailable"}</h3>
+          <p>Refresh the page or check access to the configured control plane.</p>
+        </div>
       ) : agents.length === 0 ? (
         <div className="panel empty">
           <div className="ic"><WifiOff size={22} /></div>
-          <h3>No agents registered</h3>
-          <p>Install the Axon agent on a server and register it here to start managing it.</p>
+          <h3>No servers registered</h3>
+          <p>Use the configured environment's setup instructions, then register a server when its details are available.</p>
           <div className="actions">
-            <button className="btn btn-primary" onClick={() => setShowForm(true)}><Plus size={14} /> Register agent</button>
+            {user?.role === "admin" && <button className="btn btn-primary" onClick={() => setShowForm(true)}><Plus size={14} /> Register a server</button>}
           </div>
         </div>
       ) : (
-        <div className="grid-3">
+        <>
+        {agentsQuery.isError && <div className="banner warn" role="alert"><WifiOff size={18} /><span>The latest server records could not be refreshed. Showing the last loaded records.</span></div>}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {agents.map((agent) => (
             <div key={agent._id} style={{ position: "relative" }}>
               <AgentCard agent={agent} />
@@ -185,6 +193,7 @@ export default function AgentsPage() {
                   <button
                     className="icon-btn"
                     title="Rotate API key"
+                    aria-label={`Rotate API key for ${agent.name}`}
                     onClick={async () => {
                       await agentsAPI.rotateKey(agent._id).catch(() => undefined);
                       toast.info("Key rotated", agent.name);
@@ -195,6 +204,7 @@ export default function AgentsPage() {
                   <button
                     className="icon-btn danger"
                     title="Decommission"
+                    aria-label={`Decommission agent ${agent.name}`}
                     onClick={() => handleDecommission(agent._id, agent.name)}
                   >
                     <Trash2 size={13} />
@@ -204,6 +214,7 @@ export default function AgentsPage() {
             </div>
           ))}
         </div>
+        </>
       )}
     </>
   );

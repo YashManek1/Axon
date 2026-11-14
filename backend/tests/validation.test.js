@@ -1,8 +1,10 @@
 import express from "express";
-import jwt from "jsonwebtoken";
 import request from "supertest";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { requestId } from "../middleware/requestId.js";
+import Organization from "../models/organization.js";
+import User from "../models/user.js";
+import { signSessionToken } from "../controllers/userC.js";
 
 vi.mock("../config/queue.js", () => ({
   scheduledJobsQueue: {
@@ -37,18 +39,20 @@ function expectRequestId(response) {
   expect(response.headers["x-request-id"]).toEqual(expect.any(String));
 }
 
-function authHeader() {
-  const token = jwt.sign(
-    {
-      id: "507f1f77bcf86cd799439011",
-      orgId: "507f1f77bcf86cd799439012",
-      username: "Test User",
-      role: "user",
-    },
-    process.env.JWT_SECRET,
-  );
-
-  return `Bearer ${token}`;
+async function authHeader() {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const org = await Organization.create({
+    name: `Validation Org ${suffix}`,
+    description: "Validation test organization",
+  });
+  const user = await User.create({
+    username: `validation-${suffix}`,
+    email: `validation-${suffix}@example.com`,
+    password: "hashed-password",
+    role: "operator",
+    orgId: org._id,
+  });
+  return `Bearer ${signSessionToken(user)}`;
 }
 
 const validRegisterBody = {
@@ -142,7 +146,7 @@ describe("request validation", () => {
   it("POST /jobs/createJob with auth but invalid body returns 400 with VALIDATION_ERROR", async () => {
     const response = await request(app)
       .post("/jobs/createJob")
-      .set("Authorization", authHeader())
+      .set("Authorization", await authHeader())
       .send({
         name: "Invalid Job",
         type: "http",

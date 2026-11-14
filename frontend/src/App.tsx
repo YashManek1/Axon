@@ -19,6 +19,7 @@ import JobDetailPage from "./pages/dashboard/JobDetailPage";
 import AuditPage from "./pages/dashboard/AuditPage";
 import LivePage from "./pages/dashboard/LivePage";
 import RunbooksPage from "./pages/dashboard/RunbooksPage";
+import SettingsPage from "./pages/dashboard/SettingsPage";
 import AdminAnalyticsPage from "./pages/dashboard/AdminAnalyticsPage";
 import HomePage from "./pages/HomePage";
 import ToastContainer from "./components/ui/ToastContainer";
@@ -27,11 +28,29 @@ import "./toast-animation.css";
 import { Analytics } from "@vercel/analytics/react";
 
 
+import PrivacyPolicyPage from "./pages/legal/PrivacyPolicyPage";
+import TermsPage from "./pages/legal/TermsPage";
+import SecurityPage from "./pages/legal/SecurityPage";
+
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
-  if (!isAuthenticated) return <Navigate to="/login" />;
+  const { isAuthenticated, isBootstrapping } = useAuthStore();
+  // The session lives in an httpOnly cookie, so after a reload the store is
+  // empty until /user/refresh answers. Redirecting during that window is what
+  // logged users out on every refresh and broke deep links.
+  if (isBootstrapping) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center bg-bg text-ink-2 text-sm"
+        role="status"
+        aria-live="polite"
+      >
+        Restoring your session…
+      </div>
+    );
+  }
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
@@ -52,21 +71,25 @@ function AuthNavigationBridge() {
 }
 
 function App() {
-  const { initialize, login, logout } = useAuthStore();
+  const { finishBootstrap, login, logout } = useAuthStore();
 
   useEffect(() => {
-    initialize();
     authAPI
       .refresh()
       .then((response) => {
         if (response.data?.user) {
           login(response.data.user);
+        } else {
+          // A 2xx without a user still means "not signed in"; without this the
+          // bootstrap flag would never clear and the app would hang on the
+          // loading state forever.
+          finishBootstrap();
         }
       })
       .catch(() => {
         logout();
       });
-  }, [initialize, login, logout]);
+  }, [finishBootstrap, login, logout]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -76,6 +99,9 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/security" element={<SecurityPage />} />
           <Route
             path="/dashboard"
             element={
@@ -92,6 +118,7 @@ function App() {
             <Route path="audit" element={<AuditPage />} />
             <Route path="live" element={<LivePage />} />
             <Route path="runbooks" element={<RunbooksPage />} />
+            <Route path="settings" element={<SettingsPage />} />
             <Route path="admin" element={<AdminRoute><AdminAnalyticsPage /></AdminRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />

@@ -1,0 +1,24 @@
+// Tests execute the shipped inline script; this DOM shim is not a browser walkthrough.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const html = fs.readFileSync(require('node:path').join(__dirname,'index.html'),'utf8');
+function setup() {
+  const nodes = new Map(); const downloads = []; let focus;
+  for(const [,id] of html.matchAll(/id="([^"]+)"/g)) nodes.set(id,{value:'',hidden:id==='confirmation',disabled:id==='export',listeners:{},addEventListener(k,fn){this.listeners[k]=fn;},focus(){focus=id;}});
+  const context = vm.createContext({document:{getElementById:id=>nodes.get(id),body:{appendChild(){}},createElement(){return {click(){downloads.push(this);},remove(){}};}},Blob,URL:{createObjectURL(blob){downloads.push(blob);return 'blob:test';},revokeObjectURL(){}},setTimeout:fn=>fn()});
+  vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],context);
+  const event=(id,type='click')=>nodes.get(id).listeners[type]({preventDefault(){}});
+  return {nodes,event,downloads,focus:()=>focus,run:code=>vm.runInContext(code,context)};
+}
+test('blank evidence remains unknown in both sections',()=>{const s=setup();s.event('assessment','submit');assert.equal((s.nodes.get('draft').value.match(/Unknown — evidence not supplied\./g)||[]).length,12);assert.match(s.nodes.get('draft').value,/REVIEWER JUDGMENT — NOT BUYER FACTS/);assert.equal(s.nodes.get('export').disabled,false);});
+test('partial input preserves supplied text without invented facts',()=>{const s=setup();s.nodes.get('workflow').value=' Fictional staging check ';s.event('assessment','submit');assert.match(s.nodes.get('draft').value,/Fictional staging check/);assert.equal((s.nodes.get('draft').value.match(/Unknown — evidence not supplied\./g)||[]).length,11);});
+test('complete input retains every value and a no-change recommendation',()=>{const s=setup();s.run('fields').forEach(([id])=>{s.nodes.get(id).value='Test-only '+id;});s.nodes.get('recommendation').value='No change: existing CI is adequate.';s.event('assessment','submit');assert.match(s.nodes.get('draft').value,/No change: existing CI is adequate\./);assert.doesNotMatch(s.nodes.get('draft').value,/Unknown — evidence not supplied\./);});
+test('hostile markup is retained only as textarea text',()=>{const s=setup();s.nodes.get('workflow').value='<img src=x onerror=alert(1)>';s.event('assessment','submit');assert.match(s.nodes.get('draft').value,/<img src=x onerror=alert\(1\)>/);assert.doesNotMatch(html,/innerHTML|insertAdjacentHTML|document\.write/);});
+test('regeneration can be canceled without losing edited draft',()=>{const s=setup();s.nodes.get('draft').value='Manual edits';s.event('assessment','submit');assert.equal(s.nodes.get('confirmation').hidden,false);assert.equal(s.focus(),'cancel');s.event('cancel');assert.equal(s.nodes.get('draft').value,'Manual edits');assert.equal(s.focus(),'prepare');assert.equal(s.nodes.get('confirmation').hidden,true);});
+test('regeneration requires explicit confirmation',()=>{const s=setup();s.nodes.get('draft').value='Manual edits';s.event('assessment','submit');assert.equal(s.nodes.get('draft').value,'Manual edits');s.event('confirm');assert.match(s.nodes.get('draft').value,/ONE-WORKFLOW ASSESSMENT/);});
+test('reset cancellation preserves all work; confirmed reset clears',()=>{const s=setup();s.nodes.get('workflow').value='Fictional notes';s.event('assessment','submit');s.event('reset');s.event('cancel');assert.equal(s.nodes.get('workflow').value,'Fictional notes');assert.ok(s.nodes.get('draft').value);assert.equal(s.focus(),'reset');assert.equal(s.nodes.get('confirmation').hidden,true);s.event('reset');s.event('confirm');for(const [id] of s.run('fields'))assert.equal(s.nodes.get(id).value,'');assert.equal(s.nodes.get('draft').value,'');assert.equal(s.nodes.get('export').disabled,true);});
+test('edited exports always retain safety/commercial disclaimer',async()=>{const s=setup();s.nodes.get('draft').value='Edited test-only report';s.event('draft','input');assert.equal(s.downloads.length,0);s.event('export');const text=await s.downloads[0].text();assert.match(text,/Edited test-only report/);assert.match(text,/REVIEW NOTICE/);assert.match(text,/delivery capability and availability/);assert.match(text,/deployment acceptance remains incomplete/);assert.equal(s.downloads[1].download,'axon-assessment-DRAFT.txt');});
+test('empty edited draft cannot export',()=>{const s=setup();s.nodes.get('draft').value='   ';s.event('draft','input');s.event('export');assert.equal(s.nodes.get('export').disabled,true);assert.equal(s.downloads.length,0);});
+test('no remote assets, runtime network, clipboard or persistence APIs',()=>{assert.doesNotMatch(html,/\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|localStorage|sessionStorage|indexedDB|navigator\.clipboard|<script[^>]+src=|<link[^>]+href=|<form[^>]+action=|https?:\/\//i);});
